@@ -4,5 +4,7 @@
   "descrizione": "Maggioranze nella Spagna del XV secolo: carte potere, Caballeros, il Re e il Castillo. Contro l'IA o online.",
   "online": true,
   "sezione": "conversione",
-  "ordine": 179
+  "ordine": 182,
+  "generi": ["Storici", "Gestionali"],
+  "bgg": 93
 }
