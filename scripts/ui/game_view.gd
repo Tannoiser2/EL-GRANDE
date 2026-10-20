@@ -5,11 +5,13 @@ extends Control
 const D = preload("res://scripts/data/eg_data.gd")
 const CardView = preload("res://scripts/ui/card_view.gd")
 const BoardView = preload("res://scripts/ui/board_view.gd")
+const Plancia = preload("res://scripts/ui/plancia.gd")
 const CAS := 9
 const BOARD_POS := Vector2(10, 10)
-const BOARD_W := 1290.0
-const RX := 1312.0
-const RW := 598.0
+const BOARD_W := 1150.0
+const RX := 1172.0
+const RW := 740.0
+const CARDS_Y := 866.0
 
 var main
 var config: Dictionary
@@ -31,6 +33,7 @@ var board: Control
 var header_lbl: Label
 var sub_lbl: Label
 var rows_box: VBoxContainer
+var plance := []
 var cards_box: HBoxContainer
 var chron: RichTextLabel
 var msg_lbl: Label
@@ -167,24 +170,32 @@ func _build_side() -> void:
 	sub_lbl.custom_minimum_size.x = RW - 24
 	tv.add_child(sub_lbl)
 
+	# plance dei giocatori
 	rows_box = VBoxContainer.new()
-	rows_box.position = Vector2(RX, 106)
-	rows_box.custom_minimum_size = Vector2(RW, 0)
-	rows_box.add_theme_constant_override("separation", 5)
+	rows_box.position = Vector2(RX, 80)
+	rows_box.add_theme_constant_override("separation", 6)
 	add_child(rows_box)
+	for s in engine.n:
+		var pl := Plancia.new()
+		pl.eng = engine
+		pl.seat = s
+		pl.view = self
+		rows_box.add_child(pl)
+		plance.append(pl)
+	var used: float = 80 + engine.n * (Plancia.H + 6)
 
-	var cl := UI.heading("Carte azione del round", 22)
-	cl.position = Vector2(RX + 4, 618)
-	add_child(cl)
+	# carte azione del round, sotto il tabellone
 	cards_box = HBoxContainer.new()
-	cards_box.position = Vector2(RX, 650)
+	cards_box.position = Vector2(BOARD_POS.x, CARDS_Y)
 	cards_box.add_theme_constant_override("separation", 6)
 	add_child(cards_box)
 
+	# cronaca (lo spazio che avanza sotto le plance)
 	var cp := PanelContainer.new()
-	cp.position = Vector2(RX, 866)
-	cp.custom_minimum_size = Vector2(RW, 206)
-	cp.size = Vector2(RW, 206)
+	cp.position = Vector2(RX, used + 4)
+	cp.custom_minimum_size = Vector2(RW, maxf(0.0, 1072 - used - 4))
+	cp.size = cp.custom_minimum_size
+	cp.visible = 1072 - used > 60
 	cp.add_theme_stylebox_override("panel", UI.panel_style(Color("#140b06"), Color("#3a2614"), 1, 6))
 	add_child(cp)
 	chron = RichTextLabel.new()
@@ -197,26 +208,28 @@ func _build_side() -> void:
 
 
 func _build_bottom() -> void:
-	var y := BOARD_POS.y + BOARD_W * D.BOARD_SIZE.y / D.BOARD_SIZE.x + 12
+	var y := CARDS_Y - 2
+	var x0 := BOARD_POS.x + 5 * 113 + 4 * 6 + 12
 	var p := PanelContainer.new()
-	p.position = Vector2(BOARD_POS.x - 4, y)
-	p.custom_minimum_size = Vector2(BOARD_W + 8, 1072 - y)
+	p.position = Vector2(x0, y)
+	p.custom_minimum_size = Vector2(BOARD_POS.x + BOARD_W - x0 + 4, 1072 - y)
 	p.size = p.custom_minimum_size
 	var st := UI.panel_style(Color("#24150b"), UI.GOLD_D, 2, 8)
 	p.add_theme_stylebox_override("panel", st)
 	add_child(p)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 14)
-	p.add_child(hb)
-	msg_lbl = UI.label("", 23, UI.TEXT, UI.font_body)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	p.add_child(vb)
+	msg_lbl = UI.label("", 22, UI.TEXT, UI.font_body)
 	msg_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	msg_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	msg_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hb.add_child(msg_lbl)
+	msg_lbl.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(msg_lbl)
 	btn_row = HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 10)
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
-	hb.add_child(btn_row)
+	vb.add_child(btn_row)
 
 
 func _build_log() -> void:
@@ -299,74 +312,8 @@ func _refresh_header() -> void:
 
 
 func _refresh_rows() -> void:
-	for c in rows_box.get_children():
-		c.queue_free()
-	var order := range(engine.n)
-	for s in order:
-		rows_box.add_child(_player_row(s))
-
-
-func _player_row(s: int) -> Control:
-	var p: Dictionary = engine.players[s]
-	var col := UI.pcol(p["color"])
-	var active: bool = engine.current == s or engine.acting == s
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(RW, 96)
-	var st := UI.panel_style(Color("#1d120a") if not active else Color("#3a2410"), col if active else Color("#4a3420"), 3 if active else 1, 8)
-	st.content_margin_top = 4
-	st.content_margin_bottom = 4
-	panel.add_theme_stylebox_override("panel", st)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 10)
-	panel.add_child(hb)
-	var cube := Control.new()
-	cube.custom_minimum_size = Vector2(52, 80)
-	cube.draw.connect(func():
-		UI.draw_cube(cube, Vector2(26, 40), 40, col, Color(1, 0.92, 0.7, 0.9)))
-	hb.add_child(cube)
-	var info := VBoxContainer.new()
-	info.add_theme_constant_override("separation", -2)
-	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hb.add_child(info)
-	var nm_row := HBoxContainer.new()
-	var nm := UI.label(p["name"] + (" · IA" if p["ai"] else ""), 24, UI.plight(p["color"]), UI.font_sc_b)
-	nm_row.add_child(nm)
-	if engine.veto_active(s):
-		var vt := UI.label("  VETO", 20, UI.RED_L, UI.font_sc_b)
-		vt.tooltip_text = "Ha la carta Veto!: può annullare un'azione speciale."
-		vt.mouse_filter = Control.MOUSE_FILTER_PASS
-		nm_row.add_child(vt)
-	if engine.start_seat == s and engine.phase == "power":
-		nm_row.add_child(UI.label("  inizia", 18, UI.MUTED, UI.font_italic))
-	info.add_child(nm_row)
-	var g: int = engine.grande[s]
-	var l2 := UI.label("Grande in %s · corte %d · province %d" % [D.region_name(g), engine.court[s], engine.prov[s]], 19, UI.TEXT)
-	info.add_child(l2)
-	var hand_txt := "Mano: " + ", ".join(engine.hand[s].map(func(v): return str(v)))
-	var l3 := UI.label(hand_txt, 17, UI.MUTED)
-	l3.clip_text = true
-	l3.custom_minimum_size.x = 330
-	info.add_child(l3)
-	# carta potere giocata
-	var pv: int = engine.played[s]
-	var pc := Control.new()
-	pc.custom_minimum_size = Vector2(56, 80)
-	if pv > 0:
-		var tr := UI.icon_rect(UI.power_tex(p["color"], pv), Vector2(54, 80))
-		pc.add_child(tr)
-		pc.tooltip_text = "Carta potere %d: %d Caballeros" % [pv, D.POWER_CAB[pv]]
-	hb.add_child(pc)
-	var scv := VBoxContainer.new()
-	scv.custom_minimum_size = Vector2(70, 0)
-	scv.alignment = BoxContainer.ALIGNMENT_CENTER
-	var sl := UI.label(str(engine.score[s]), 40, UI.GOLD, UI.font_sc_b)
-	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	scv.add_child(sl)
-	var pl := UI.label("punti", 15, UI.MUTED)
-	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	scv.add_child(pl)
-	hb.add_child(scv)
-	return panel
+	for pl in plance:
+		pl.update_info()
 
 
 func _refresh_cards() -> void:
@@ -394,7 +341,7 @@ func _card_popup(ci: int, on: bool) -> void:
 	var cv := CardView.new()
 	cv.setup(ci, Vector2(300, 470), true)
 	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cv.position = Vector2(RX - 312, 560)
+	cv.position = Vector2(BOARD_POS.x + 600, CARDS_Y - 480)
 	popup.add_child(cv)
 
 
@@ -679,7 +626,7 @@ func _on_decision(req: Dictionary) -> void:
 		"power":
 			_power_modal(req)
 		"action":
-			msg_lbl.text = _cap(_who(s) + "scegli una carta azione (a destra, clic sulla carta). Passa il mouse sulle carte per leggerle.")
+			msg_lbl.text = _cap(_who(s) + "scegli una carta azione: clic su una delle carte qui a sinistra (passaci sopra il mouse per leggerla).")
 			_refresh_cards()
 			_clear_buttons()
 		"pick":
@@ -867,7 +814,7 @@ func _power_modal(req: Dictionary) -> void:
 	var p: Dictionary = engine.players[s]
 	var used: Array = req["used"]
 	var legal: Array = req["legal"]
-	var vb := _open_modal(_cap(_who(s)) + ("G" if _who(s) == "" else "g") + "ioca una carta potere: più è alta, prima scegli la carta azione; i Caballeros raffigurati passano dalle province alla tua corte.", 1240, false, Vector2(BOARD_POS.x + 20, 520))
+	var vb := _open_modal(_cap(_who(s)) + ("G" if _who(s) == "" else "g") + "ioca una carta potere: più è alta, prima scegli la carta azione; i Caballeros raffigurati passano dalle province alla tua corte.", 1130, false, Vector2(BOARD_POS.x + 10, 450))
 	var info := []
 	for t in engine.n:
 		if engine.played[t] > 0:
@@ -883,7 +830,7 @@ func _power_modal(req: Dictionary) -> void:
 		b.texture_normal = UI.power_tex(p["color"], v)
 		b.ignore_texture_size = true
 		b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-		b.custom_minimum_size = Vector2(88, 132)
+		b.custom_minimum_size = Vector2(80, 120)
 		b.disabled = not ok
 		b.modulate = Color.WHITE if ok else Color(0.35, 0.35, 0.35)
 		b.tooltip_text = "Carta %d: %d Caballeros alla corte%s" % [v, D.POWER_CAB[v], "" if ok else " (già giocata da un altro)"]
@@ -952,6 +899,8 @@ func _on_pause(req: Dictionary) -> void:
 
 func _on_fx(kind: String, data: Dictionary) -> void:
 	match kind:
+		"flow":
+			_fly(int(data["seat"]), data["from"], data["to"], int(data["n"]))
 		"score":
 			var r: int = data["r"]
 			board.flash[r] = board.t
@@ -974,6 +923,39 @@ func _on_fx(kind: String, data: Dictionary) -> void:
 			_banner("VETO! di %s" % engine.pname(int(data["seat"])), UI.RED_L)
 		"king":
 			board.queue_redraw()
+
+
+## Punto dello schermo di province, corte o di una regione del tabellone.
+func _spot(s: int, where) -> Vector2:
+	if where is String:
+		return plance[s].prov_point() if where == "prov" else plance[s].court_point()
+	var r := int(where)
+	var c: Vector2 = D.CASTILLO_POS if r == CAS else D.REGIONS[r]["rect"].get_center()
+	return board.global_position + c * board.sc
+
+
+## Cubetti in volo da un posto all'altro.
+func _fly(s: int, from, to, q: int) -> void:
+	if engine.headless or (online != null and online.catchup):
+		return
+	var col := UI.pcol(engine.players[s]["color"])
+	var a := _spot(s, from)
+	var b := _spot(s, to)
+	for i in mini(q, 7):
+		var cube := Control.new()
+		cube.size = Vector2(24, 24)
+		cube.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cube.draw.connect(func(): UI.draw_cube(cube, Vector2(12, 12), 22, col, Color(1, 0.95, 0.8, 0.95)))
+		cube.position = a - Vector2(12, 12) + Vector2(randf_range(-6, 6), randf_range(-6, 6))
+		cube.modulate.a = 0.0
+		toast.add_child(cube)
+		var dest := b - Vector2(12, 12) + Vector2(randf_range(-10, 10), randf_range(-8, 8))
+		var tw := cube.create_tween()
+		tw.tween_interval(i * 0.09)
+		tw.tween_property(cube, "modulate:a", 1.0, 0.08)
+		tw.tween_property(cube, "position", dest, 0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		tw.tween_property(cube, "modulate:a", 0.0, 0.25)
+		tw.tween_callback(cube.queue_free)
 
 
 func _banner(text: String, col: Color) -> void:

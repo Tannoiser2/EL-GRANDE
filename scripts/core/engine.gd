@@ -122,6 +122,12 @@ func pname(s: int) -> String:
 	return players[s]["name"] if s >= 0 and s < n else "?"
 
 
+## Caballeros che passano da un posto all'altro (per le animazioni): "prov", "court" o una regione.
+func flow(s: int, from, to, q: int) -> void:
+	if q > 0 and not headless:
+		fx.emit("flow", {"seat": s, "from": from, "to": to, "n": q})
+
+
 func log_msg(t: String) -> void:
 	log_lines.append(t)
 	if log_lines.size() > 400:
@@ -348,6 +354,7 @@ func _turn(s: int) -> void:
 	var take: int = mini(nc, prov[s])
 	prov[s] -= take
 	court[s] += take
+	flow(s, "prov", "court", take)
 	if take > 0:
 		log_msg("%s porta %d Caballeros dalle province alla corte." % [pname(s), take])
 	var short: int = nc - take
@@ -429,6 +436,7 @@ func _apply_take(s: int, r, nmax: int, exact: bool, dest: String) -> int:
 			court[s] += q
 		else:
 			prov[s] += q
+		flow(s, "court" if src == -1 else src, dest, q)
 	if exact and got < nmax:
 		# completa automaticamente (scelta non valida o incompleta)
 		var srcs := _own_sources(s, dest == "prov")
@@ -445,6 +453,7 @@ func _apply_take(s: int, r, nmax: int, exact: bool, dest: String) -> int:
 					court[s] += 1
 				else:
 					prov[s] += 1
+				flow(s, "court" if src == -1 else src, dest, 1)
 	return got
 
 
@@ -469,6 +478,7 @@ func _place(s: int, k: int, targets: Array = [], ctx := "place") -> void:
 			continue
 		cab[t][s] += m
 		court[s] -= m
+		flow(s, "court", t, m)
 		put += m
 		parts.append("%d in %s" % [m, rname(t)] if t != CAS or not castillo_hidden else "%d nel Castillo" % m)
 	if put > 0:
@@ -537,6 +547,7 @@ func _special(s: int, ci: int) -> void:
 				var q: int = court[o] if key == "decay_all" else mini(3, court[o])
 				court[o] -= q
 				prov[o] += q
+				flow(o, "court", "prov", q)
 				if q > 0:
 					log_msg("%s rimanda %d Caballeros dalla corte alle province." % [pname(o), q])
 		"king_returns":
@@ -621,6 +632,7 @@ func _special(s: int, ci: int) -> void:
 			var q := mini(2, prov[s])
 			prov[s] -= q
 			court[s] += q
+			flow(s, "prov", "court", q)
 			log_msg("%s porta %d Caballeros dalle province alla corte." % [pname(s), q])
 		"advisor":
 			var r := await pick_region(s, "advisor", "Consigliere reale: muovi il Re in una regione confinante", D.ADJ[king].duplicate())
@@ -661,6 +673,7 @@ func _special(s: int, ci: int) -> void:
 				var q: int = cab[r][o]
 				cab[r][o] = 0
 				var t: int = dest[o]
+				flow(o, r, "court" if (t == king or t == r) else t, q)
 				if t == king or t == r:
 					court[o] += q
 					log_msg("%s riporta %d Caballeros a corte." % [pname(o), q])
@@ -768,6 +781,7 @@ func _apply_moves(s: int, r, spec: Dictionary) -> int:
 			continue
 		cab[a][p] -= 1
 		cab[b][p] += 1
+		flow(p, a, b, 1)
 		done += 1
 		if p == s:
 			own += 1
@@ -828,6 +842,7 @@ func _exile(s: int, two: bool) -> void:
 		var q: int = mini(2, cab[r][o]) if two else cab[r][o]
 		cab[r][o] -= q
 		prov[o] += q
+		flow(o, r, "prov", q)
 		log_msg("%s rimanda %d Caballeros da %s alle province." % [pname(o), q, rname(r)])
 	if not picks.is_empty():
 		fx.emit("discs", {"picks": picks})
@@ -844,6 +859,7 @@ func _one_each(s: int) -> void:
 			continue
 		cab[r][o] -= 1
 		prov[o] += 1
+		flow(o, r, "prov", 1)
 		log_msg("%s rimanda 1 Caballero di %s da %s alle province." % [pname(s), pname(o), rname(r)])
 		changed.emit()
 
@@ -932,6 +948,7 @@ func general_scoring() -> void:
 		var q: int = cab[CAS][s]
 		cab[CAS][s] = 0
 		var t: int = picks[s]
+		flow(s, CAS, "court" if t == king else t, q)
 		if t == king:
 			court[s] += q
 		else:
