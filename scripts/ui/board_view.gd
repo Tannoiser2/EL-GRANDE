@@ -93,6 +93,9 @@ func _draw() -> void:
 	# Grandissimo: Portogallo, nave, prigione, Caballeros neri dell'Inquisitore
 	if eng.grandissimo:
 		_draw_grandissimo(counts)
+	# Intrigo & il Re: ponte, «Prendi 6!», quarantena, protezione
+	if eng.intrigo:
+		_draw_intrigo()
 	# Castillo
 	_draw_castillo(counts[CAS])
 	# Caballeros nelle regioni
@@ -177,6 +180,39 @@ func _badge(c: Vector2, s: int, q: int, hidden := false) -> void:
 	var p := c + Vector2(10 * sc, 16 * sc)
 	draw_string_outline(f, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, Color(0, 0, 0, 0.9))
 	draw_string(f, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
+
+
+func _draw_intrigo() -> void:
+	if not eng.bridge.is_empty():
+		var a := bp(D.REGIONS[eng.bridge["a"]]["rect"].get_center())
+		var b := bp(D.REGIONS[eng.bridge["b"]]["rect"].get_center())
+		var col := UI.pcol(eng.players[eng.bridge["owner"]]["color"])
+		draw_line(a, b, Color(0.25, 0.15, 0.05, 0.85), 14 * sc, true)
+		draw_line(a, b, Color("#c8a46a"), 9 * sc, true)
+		for i in 7:
+			var p := a.lerp(b, (i + 0.5) / 7.0)
+			var d := (b - a).normalized().orthogonal() * 6 * sc
+			draw_line(p - d, p + d, Color(0.3, 0.18, 0.06), 2.0)
+		var mid := a.lerp(b, 0.5)
+		if eng.bridge.get("guard", false):
+			UI.draw_cube(self, mid, 22 * sc, col, Color(1, 0.95, 0.8))
+	for r in eng.limit6:
+		var rr: Rect2 = D.REGIONS[r]["rect"]
+		var c := bp(rr.position + Vector2(rr.size.x - 22, rr.size.y - 20))
+		var box := Rect2(c - Vector2(20, 26) * sc, Vector2(40, 52) * sc)
+		draw_rect(box, Color("#f4ead2"))
+		draw_rect(box, UI.pcol(eng.players[eng.limit6[r]]["color"]), false, 3.0)
+		draw_string(UI.font_sc_b, Vector2(box.position.x, box.position.y + box.size.y * 0.72), "6", HORIZONTAL_ALIGNMENT_CENTER, box.size.x, int(32 * sc), Color("#5a1a10"))
+	if not eng.quarantine.is_empty():
+		var rr: Rect2 = D.REGIONS[eng.quarantine[0]]["rect"]
+		var r2 := Rect2(bp(rr.position), rr.size * sc).grow(-6)
+		draw_line(r2.position, r2.end, Color(0.6, 0.05, 0.05, 0.8), 6.0, true)
+		draw_line(Vector2(r2.end.x, r2.position.y), Vector2(r2.position.x, r2.end.y), Color(0.6, 0.05, 0.05, 0.8), 6.0, true)
+		draw_string(UI.font_sc_b, bp(rr.position + Vector2(6, 22)), "Quarantena", HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * sc), Color("#7a1010"))
+	for r in eng.protected:
+		var rr: Rect2 = D.REGIONS[r]["rect"]
+		_draw_region_frame(r, Color(0.9, 0.8, 0.4, 0.12), Color(0.95, 0.8, 0.3, 0.9), 3.0)
+		draw_string(UI.font_sc_b, bp(rr.position + Vector2(6, 22)), "Protetta", HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * sc), Color("#6a4a10"))
 
 
 func _draw_grandissimo(counts: Array) -> void:

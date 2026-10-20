@@ -177,9 +177,9 @@ func _build_side() -> void:
 	rows_box.position = Vector2(RX, 80)
 	rows_box.add_theme_constant_override("separation", 6)
 	add_child(rows_box)
-	var ncards := 7 if engine.grandissimo else 5
+	var ncards := 7 if (engine.grandissimo or engine.intrigo) else 5
 	CARD_W = minf(126.0, floorf((RW - 6 * (ncards - 1)) / ncards))
-	CARD_H = roundf(CARD_W * 1.405)
+	CARD_H = roundf(CARD_W * (1.617 if engine.intrigo else 1.405))
 	var cards_y := 1072.0 - CARD_H
 	var ph := minf(215.0, (cards_y - 8 - 80 - 6 * (engine.n - 1)) / engine.n)
 	for s in engine.n:
@@ -323,6 +323,9 @@ func _refresh_rows() -> void:
 func _refresh_cards() -> void:
 	for c in cards_box.get_children():
 		c.queue_free()
+	if engine.intrigo:
+		_refresh_ik_cards()
+		return
 	var choosing: bool = pending.get("type", "") == "action"
 	for ci in engine.showing:
 		var cv := CardView.new()
@@ -337,16 +340,43 @@ func _refresh_cards() -> void:
 		cards_box.add_child(cv)
 
 
-func _card_popup(ci: int, on: bool) -> void:
+## Intrigo & il Re: carta del Re, dell'Intrigo e carte Caballero del round, con chi le ha.
+func _refresh_ik_cards() -> void:
+	var items := [[D.IK_KING, "", engine.king_holder], [D.IK_INTRIGUE, "", engine.intrigue_holder]]
+	var cabs: Array = D.IK_CAB[clampi(engine.n, 2, 5)]
+	for i in cabs.size():
+		var who := -1
+		for s in engine.n:
+			if engine.cab_card[s] == cabs[i] and engine.phase != "power":
+				who = s
+		items.append([D.IK_KING, "res://assets/intrigo/c%d.jpg" % cabs[i], who])
+	for it in items:
+		var cv := CardView.new()
+		cv.tex_override = it[1]
+		cv.setup(it[0], Vector2(CARD_W, CARD_W * 1.617))
+		if it[2] >= 0:
+			cv.owner_color = engine.players[it[2]]["color"]
+		var ci: int = it[0]
+		var tx: String = it[1]
+		cv.mouse_entered.connect(func(): _card_popup(ci, true, "blue", Vector2(-1, -1), tx))
+		cv.mouse_exited.connect(func(): _card_popup(ci, false))
+		cards_box.add_child(cv)
+
+
+func _card_popup(ci: int, on: bool, ckey := "blue", pos := Vector2(-1, -1), tex := "") -> void:
 	for c in popup.get_children():
 		c.queue_free()
 	if not on:
 		return
 	var cv := CardView.new()
-	cv.setup(ci, Vector2(360, 506), true)
+	cv.color_key = ckey
+	cv.tex_override = tex
+	var sz := Vector2(360, 506) if ci < D.IK_FIRST else Vector2(330, 534)
+	cv.setup(ci, sz, true)
 	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cv.position = Vector2(RX - 372, 1072 - 516)
+	cv.position = pos if pos.x >= 0 else Vector2(RX - sz.x - 12, 1072 - sz.y - 10)
 	popup.add_child(cv)
+	popup.move_to_front()
 
 
 func _on_card_input(ev: InputEvent, ci: int) -> void:
@@ -452,6 +482,16 @@ func _move_ok(a: int, b: int, p: int) -> bool:
 	var fr := int(spec.get("from", -1))
 	if fr >= 0 and a != fr:
 		return false
+	if spec.has("to") and b != int(spec["to"]):
+		return false
+	if spec.has("pair") and not (a in spec["pair"] and b in spec["pair"]):
+		return false
+	if engine.limit6.has(b):
+		var tot := 0
+		for t in engine.n:
+			tot += counts[b][t]
+		if tot >= 6:
+			return false
 	if spec.get("single", false) and not moves.is_empty() and moves[0][0] != a:
 		return false
 	if p == s and oc[0] >= int(spec["own"]):
@@ -551,7 +591,7 @@ func _on_region_click(r: int, button: int) -> void:
 			if r in pending["allowed"]:
 				_provide(r)
 		"place":
-			if r in pending["targets"] and _placed() < int(pending["n"]):
+			if r in pending["targets"] and _placed() < int(pending["n"]) and place_d.get(r, 0) < engine.room(r):
 				place_d[r] = place_d.get(r, 0) + 1
 		"moves":
 			if move_src < 0:
@@ -647,6 +687,10 @@ func _on_decision(req: Dictionary) -> void:
 	match str(req["type"]):
 		"power":
 			_power_modal(req)
+		"ik_power":
+			_ik_power_modal(req)
+		"deck":
+			_deck_modal(req)
 		"action":
 			msg_lbl.text = _cap(_who(s) + "scegli una carta azione: clic su una delle carte in basso a destra (passaci sopra il mouse per leggerla).")
 			_refresh_cards()
@@ -862,6 +906,106 @@ func _power_modal(req: Dictionary) -> void:
 		b.mouse_exited.connect(func(): b.scale = Vector2.ONE)
 		hb.add_child(b)
 	msg_lbl.text = _cap(_who(s) + "scegli la carta potere.")
+
+
+func _ckey(s: int) -> String:
+	return D.COLORS[engine.players[s]["color"]]["key"]
+
+
+## Intrigo & il Re: la carta del round (o la carta vera dopo il Jolly).
+func _ik_power_modal(req: Dictionary) -> void:
+	var s: int = req["seat"]
+	var legal: Array = req["legal"]
+	var joker: bool = req["ctx"] == "joker"
+	var head := "Jolly: ora scegli la carta vera dalla tua mano." if joker else "gioca una carta azione: la più alta prende la carta del Re e più Caballeros, la più bassa l'Intrigo."
+	var vb := _open_modal(_cap(_who(s) + head), 1130, false, Vector2(BOARD_POS.x + 10, 380))
+	var info := []
+	for t in engine.n:
+		if engine.ik_played[t] >= 0:
+			info.append("%s %s" % [engine.pname(t), "Jolly" if engine.played[t] == 0 else str(engine.played[t])])
+	vb.add_child(UI.label(("Già giocate: " + ", ".join(info)) if not info.is_empty() else "Sei il primo a giocare.", 21, UI.MUTED))
+	var grid := GridContainer.new()
+	grid.columns = 9
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	vb.add_child(grid)
+	for ci in req["hand"]:
+		var ok: bool = ci in legal
+		var cv := CardView.new()
+		cv.color_key = _ckey(s)
+		cv.setup(ci, Vector2(116, 188))
+		cv.dim = not ok
+		cv.glow = ok
+		var cc: int = ci
+		cv.gui_input.connect(func(ev):
+			if ok and ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_card_popup(-1, false)
+				_provide(cc))
+		cv.mouse_entered.connect(func(): _card_popup(cc, true, _ckey(s)))
+		cv.mouse_exited.connect(func(): _card_popup(cc, false))
+		grid.add_child(cv)
+	msg_lbl.text = _cap(_who(s) + "scegli la carta (le carte scure hanno un valore già giocato da un altro).")
+
+
+## Intrigo & il Re: si scelgono 13 carte delle 31.
+func _deck_modal(req: Dictionary) -> void:
+	var s: int = req["seat"]
+	var need: int = req["n"]
+	var sel := {}
+	var vb := _open_modal(_cap(_who(s) + "scegli le %d carte con cui giocherai la partita (ne userai una per round)." % need), 1880, true, Vector2(20, 20))
+	var count := UI.label("", 22, UI.GOLD, UI.font_sc_b)
+	var grid := GridContainer.new()
+	grid.columns = 16
+	grid.add_theme_constant_override("h_separation", 5)
+	grid.add_theme_constant_override("v_separation", 5)
+	vb.add_child(grid)
+	var views := {}
+	var ok := UI.primary(UI.button("Conferma", 220, 52, 22))
+	var upd := func():
+		count.text = "Scelte %d di %d" % [sel.size(), need]
+		ok.disabled = sel.size() != need
+		for c in views:
+			views[c].dim = not sel.has(c)
+			views[c].glow = sel.has(c)
+			views[c].queue_redraw()
+	for ci in req["cards"]:
+		var cv := CardView.new()
+		cv.color_key = _ckey(s)
+		cv.setup(ci, Vector2(110, 178))
+		views[ci] = cv
+		var cc: int = ci
+		cv.gui_input.connect(func(ev):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				if sel.has(cc):
+					sel.erase(cc)
+				elif sel.size() < need:
+					sel[cc] = true
+				upd.call())
+		cv.mouse_entered.connect(func(): _card_popup(cc, true, _ckey(s), Vector2(1500, 560)))
+		cv.mouse_exited.connect(func(): _card_popup(cc, false))
+		grid.add_child(cv)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 14)
+	vb.add_child(hb)
+	hb.add_child(count)
+	var sug := UI.button("Carte consigliate", 260, 52, 22)
+	sug.tooltip_text = "Le 13 carte consigliate per la prima partita."
+	sug.pressed.connect(func():
+		sel.clear()
+		for v in D.IK_SUGGESTED:
+			sel[D.ik_by_val(v)] = true
+		upd.call())
+	hb.add_child(sug)
+	var none := UI.button("Nessuna", 180, 52, 22)
+	none.pressed.connect(func():
+		sel.clear()
+		upd.call())
+	hb.add_child(none)
+	ok.pressed.connect(func():
+		_card_popup(-1, false)
+		_provide(sel.keys()))
+	hb.add_child(ok)
+	upd.call()
 
 
 ## Tenda fra un giocatore e l'altro quando la scelta è segreta (hotseat).

@@ -49,9 +49,16 @@ func update_info() -> void:
 	var lines := ["%s%s" % [p["name"], " (IA)" if p["ai"] else ""]]
 	lines.append("Grande in %s" % D.region_name(eng.grande[seat]))
 	lines.append("Province %d · corte %d · sul tabellone %d" % [eng.prov[seat], eng.court[seat], eng.on_board(seat)])
-	lines.append("Carte potere in mano: " + ", ".join(eng.hand[seat].map(func(v): return str(v))))
+	if not eng.intrigo:
+		lines.append("Carte potere in mano: " + ", ".join(eng.hand[seat].map(func(v): return str(v))))
 	if eng.veto_active(seat):
 		lines.append("Ha il Veto!")
+	if eng.intrigo:
+		lines.append("Carte in mano: %d" % eng.hand[seat].size())
+		if eng.reserve.has(seat):
+			lines.append("Riserva: 1 Caballero pronto prima di una valutazione.")
+		if eng.double.has(seat):
+			lines.append("Valore doppio: " + (D.region_name(eng.double[seat]) if view != null and view.can_see_secret(seat) else "carta coperta"))
 	if eng.grandissimo:
 		if seat in eng.ships:
 			lines.append("Ha un gettone nave: può piazzare sulla nave.")
@@ -121,6 +128,8 @@ func _draw() -> void:
 		rx = _tag_right(rx, "inizia", Color(0.25, 0.16, 0.08), UI.GOLD)
 	if eng.grandissimo:
 		rx = _grandissimo_tokens(rx)
+	if eng.intrigo:
+		rx = _intrigo_tags(rx)
 	# nastri dalle province alla carta e dalla carta alla corte
 	var rib := Color(col.r, col.g, col.b, 0.3)
 	var mid := prov_r.position.y + S * 0.5
@@ -153,6 +162,10 @@ func _draw() -> void:
 	# carta potere giocata (o il dorso), grande quanto i riquadri
 	var v: int = eng.played[seat]
 	var ct: Texture2D = UI.power_tex(p["color"], v) if v > 0 else UI.tex("res://assets/backs/power.jpg")
+	if eng.intrigo:
+		var ci: int = eng.ik_played[seat]
+		v = 1 if ci >= 0 else 0
+		ct = UI.tex(D.card_tex_path(ci, D.COLORS[p["color"]]["key"])) if ci >= 0 else UI.tex("res://assets/backs/power.jpg")
 	draw_rect(card_r.grow(2), Color(0, 0, 0, 0.5))
 	draw_texture_rect(ct, card_r, false, Color.WHITE if v > 0 else Color(0.75, 0.7, 0.62))
 	# bordo: più marcato per chi è di turno
@@ -162,6 +175,23 @@ func _draw() -> void:
 		bw = 4.0
 		bc = light.lerp(Color.WHITE, 0.25 + 0.25 * sin(t * 4.0))
 	draw_rect(full.grow(-1), bc, false, bw)
+
+
+## Intrigo & il Re: carta del Re / dell'Intrigo, carta Caballero, carte scoperte.
+func _intrigo_tags(rx: float) -> float:
+	if eng.phase != "power" and eng.cab_card[seat] > 0:
+		rx = _tag_right(rx, "%d Cab." % eng.cab_card[seat], Color(0.2, 0.14, 0.08), Color("#f6e8c8"))
+	if eng.king_holder == seat and eng.phase != "power":
+		rx = _tag_right(rx, "Re", UI.GOLD_D, Color.WHITE)
+	if eng.intrigue_holder == seat and eng.phase != "power":
+		rx = _tag_right(rx, "Intrigo", Color(0.3, 0.12, 0.3), Color.WHITE)
+	if eng.reserve.has(seat):
+		rx = _tag_right(rx, "Riserva", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	if eng.double.has(seat):
+		rx = _tag_right(rx, "Doppio", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	if eng.espionage.has(seat):
+		rx = _tag_right(rx, "Spionaggio", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	return rx
 
 
 ## Gettoni e carte tenute (Grandissimo), da destra verso sinistra nell'intestazione.

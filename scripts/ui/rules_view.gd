@@ -53,7 +53,7 @@ func _ready() -> void:
 	right.bbcode_enabled = true
 	right.custom_minimum_size = Vector2(820, 880)
 	cols.add_child(right)
-	var pages := [["Gioco base", _rules_text(), _cards_text()], ["Grandissimo", _grandissimo_text(), _grandissimo_cards()]]
+	var pages := [["Gioco base", _rules_text(), _cards_text()], ["Grandissimo", _grandissimo_text(), _grandissimo_cards()], ["Intrigo & il Re", _intrigo_text(), _intrigo_cards()]]
 	var btns := []
 	for i in pages.size():
 		var b := UI.button(pages[i][0], 220, 44, 21)
@@ -158,4 +158,31 @@ func _grandissimo_cards() -> String:
 		var cd: Dictionary = D.CARDS[ci]
 		var sym: String = {"ship": " · nave", "jail": " · prigione"}.get(cd.get("sym", ""), "")
 		s += "• [b]%s[/b] [color=#b9a988](%d Caballeros%s)[/color]: %s\n" % [cd["title"], D.card_n(ci), sym, cd["text"]]
+	return s
+
+
+func _intrigo_text() -> String:
+	var s := _h("Intrigo & il Re")
+	s += "Le carte potere e le carte azione del gioco base sono sostituite da 31 carte per giocatore, uguali per tutti. Prima della partita ognuno sceglie le 13 con cui giocherà (le altre restano fuori). Poi, col disco segreto, ognuno mette un Caballero della corte in una regione (se sceglie quella del Re resta a corte).\n\n"
+	s += _h("Il round")
+	s += "• A turno, a partire da chi ha giocato la carta più bassa nel round prima, ognuno gioca scoperta una carta: non si può giocare un valore già giocato.\n"
+	s += "• Il [b]Jolly[/b] si gioca come una carta qualsiasi; quando tutti hanno giocato, chi l'ha usato sceglie la carta vera dalla mano.\n"
+	s += "• La carta più alta prende la [b]carta del Re[/b] e la carta Caballero più alta, la seconda la successiva e così via; la più bassa prende anche la [b]carta dell'Intrigo[/b].\n"
+	s += "• Si gioca dalla carta più alta. Nel proprio turno si portano a corte i Caballeros delle province disegnati sulla carta giocata; poi, nell'ordine che si vuole, si piazzano tanti Caballeros quanti ne indica la carta Caballero e si esegue l'azione speciale.\n\n"
+	s += _h("Azioni speciali")
+	s += "Chi ha la carta del Re esegue l'azione del Re (può mettere il Re in qualunque regione) al posto della propria; chi ha l'Intrigo esegue l'Intrigo: da una regione sposta 1 Caballero di un avversario, oppure fino a tutti i propri. In 2 o 3 giocatori possono scegliere invece l'azione della propria carta.\n"
+	s += "Le altre azioni sono obbligatorie, tranne quelle che dicono «puoi».\n\n"
+	s += _h("Carte Caballero")
+	s += "2 giocatori: 4 e 2 · 3 giocatori: 5, 3, 1 · 4 giocatori: 5, 4, 2, 1 · 5 giocatori: 5, 4, 3, 2, 1.\n\n"
+	s += _h("Interpretazioni")
+	s += "[color=#b9a988][i]Il ponte unisce due regioni confinanti; c'è un solo ponte in gioco e il Caballero di guardia torna a corte quando viene tolto. Il Caballero della Riserva e le carte «Prendi 6!» si tolgono con la carta 125. La Protezione reale dura fino alla fine del round.[/i][/color]\n"
+	return s
+
+
+func _intrigo_cards() -> String:
+	var s := _h("Le 31 carte")
+	for ci in D.ik_cards():
+		var cd: Dictionary = D.CARDS[ci]
+		var v: String = "Jolly" if cd["val"] == 0 else str(cd["val"])
+		s += "• [b]%s[/b] [color=#b9a988](%d dalle province)[/color] %s: %s\n" % [v, cd["pc"], cd["title"], cd["text"]]
 	return s

@@ -9,6 +9,8 @@ var dim := false
 var owner_color := -1          # colore di chi l'ha presa (-1 = libera)
 var glow := false
 var t := 0.0
+var color_key := "blue"         # colore dei numeri (carte di Intrigo & il Re)
+var tex_override := ""          # immagine diversa (carte Caballero)
 
 
 func setup(card_index: int, sz: Vector2, is_big := false) -> void:
@@ -29,7 +31,7 @@ func _process(delta: float) -> void:
 func _build() -> void:
 	for ch in get_children():
 		ch.queue_free()
-	tooltip_text = "" if big else "%s: %s" % [D.CARDS[ci]["title"], D.CARDS[ci]["text"]]
+	tooltip_text = "" if big or tex_override != "" else "%s: %s" % [D.CARDS[ci]["title"], D.CARDS[ci]["text"]]
 	queue_redraw()
 
 
@@ -37,7 +39,7 @@ func _draw() -> void:
 	var r := Rect2(Vector2.ZERO, size)
 	# carta italiana scansionata (illustrazione, titolo, testo e spiegazione)
 	draw_rect(r.grow(1), Color(0, 0, 0, 0.5))
-	draw_texture_rect(UI.tex(D.card_tex_path(ci)), r, false)
+	draw_texture_rect(UI.tex(tex_override if tex_override != "" else D.card_tex_path(ci, color_key)), r, false)
 	if owner_color >= 0:
 		draw_rect(r, Color(0, 0, 0, 0.45))
 		UI.draw_cube(self, Vector2(size.x / 2.0, size.x * 0.27), 34 if not big else 60, UI.pcol(owner_color), Color(1, 0.95, 0.8))

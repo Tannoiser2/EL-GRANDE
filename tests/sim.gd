@@ -72,6 +72,9 @@ func _check(eng: EGEngine) -> void:
 				errors += 1
 				push_error("negativo in %d per %d" % [r, s])
 			t += eng.cab[r][s]
+		t += eng.reserve.get(s, 0)
+		if not eng.bridge.is_empty() and eng.bridge["owner"] == s and eng.bridge.get("guard", false):
+			t += 1
 		for rcv in eng.gifts:
 			for g in eng.gifts[rcv]:
 				if g == s:

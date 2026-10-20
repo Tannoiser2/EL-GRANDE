@@ -9,7 +9,7 @@ extends Node
 ## Grandissimo, 16 = prigione (vedi EGData). Le righe di `cab` esistono sempre; le espansioni attivano
 ## le regioni che servono.
 ##
-## Varianti (config["variant"]): "base", "grandissimo".
+## Varianti (config["variant"]): "base", "grandissimo", "intrigo" (Intrigo & il Re).
 
 signal changed
 signal log_added(text: String)
@@ -85,6 +85,20 @@ var gifts := {}                  # posto che riceve -> [posti che regalano] (Giu
 var deferred: Array = []         # turni rimandati con L'ultima parola: [posto, carta]
 var from_prov := false           # carta Province: si piazza dalle province
 
+# ---- Intrigo & il Re
+var intrigo := false
+var ik_played: Array = []        # carta azione giocata nel round (indice in CARDS, -1 = nessuna)
+var cab_card: Array = []         # carta Caballero del round (quanti Caballeros si piazzano)
+var king_holder := -1            # chi ha la carta del Re in questo round
+var intrigue_holder := -1        # chi ha la carta dell'Intrigo
+var bridge := {}                 # {"owner", "a", "b", "guard"}: il ponte in gioco (uno solo)
+var limit6 := {}                 # regione -> posto: carte «Prendi 6!»
+var reserve := {}                # posto -> Caballeros sulla carta Riserva (75)
+var quarantine := []             # [regione, segnapunti mobile]
+var protected := {}              # regione -> round della Protezione reale
+var double := {}                 # posto -> regione che vale doppio (segreta)
+var place_any := false           # carta «Ovunque»: si piazza in qualunque regione
+
 
 # ================================================================ preparazione
 
@@ -101,6 +115,7 @@ func setup(config: Dictionary) -> void:
 	castillo_hidden = bool(config.get("castillo_hidden", false))
 	variant = str(config.get("variant", "base"))
 	grandissimo = variant == "grandissimo"
+	intrigo = variant == "intrigo"
 	var short := bool(config.get("short", false))
 	rounds = [2, 3, 5, 6, 8, 9] if short else [1, 2, 3, 4, 5, 6, 7, 8, 9]
 	cab = []
@@ -124,9 +139,11 @@ func setup(config: Dictionary) -> void:
 		var h := []
 		for v in range(1, 14):
 			h.append(v)
-		hand.append(h)
+		hand.append(h if not intrigo else D.ik_cards())
 		discard.append([])
 		played.append(0)
+		ik_played.append(-1)
+		cab_card.append(0)
 	for p in 4:
 		piles[p] = D.pile_cards(p + 1)
 		_shuffle(piles[p])
@@ -277,7 +294,18 @@ func king_regions() -> Array:
 
 ## Regioni protette (niente entra, niente esce).
 func taboo(r: int) -> bool:
-	return r == king
+	if r == king:
+		return true
+	if not quarantine.is_empty() and r == quarantine[0]:
+		return true
+	return protected.has(r)
+
+
+## Quanti Caballeros può ancora ricevere la regione (carta «Prendi 6!»).
+func room(r: int) -> int:
+	if limit6.has(r):
+		return maxi(0, 6 - total_in(r))
+	return 999
 
 
 func adj(r: int) -> Array:
@@ -386,12 +414,17 @@ func run() -> void:
 	if grandissimo:
 		log_msg("I Caballeros neri del Grande Inquisitore sono in %s." % rname(inq_pos))
 	changed.emit()
+	if intrigo:
+		await _ik_setup()
 	for i in rounds.size():
 		if game_over:
 			return
 		round_i = i
 		cur_round = rounds[i]
-		await _play_round()
+		if intrigo:
+			await _ik_round()
+		else:
+			await _play_round()
 		if cur_round in [3, 6, 9]:
 			await general_scoring()
 	_end_game()
@@ -616,7 +649,14 @@ func _place(s: int, k: int, targets: Array = [], ctx := "place") -> void:
 	if q <= 0:
 		return
 	if targets.is_empty():
-		targets = place_targets(s)
+		targets = any_targets() if place_any else place_targets(s)
+	var ok_t := []
+	for t in targets:
+		if room(t) > 0:
+			ok_t.append(t)
+	targets = ok_t
+	if targets.is_empty():
+		return
 	var title := "Piazza fino a %d Caballeros %s" % [q, "dalle province" if from_prov else "dalla corte"]
 	var r = await decide(s, {"type": "place", "ctx": ctx, "title": title, "n": q, "targets": targets, "from_prov": from_prov})
 	var d: Dictionary = r if r is Dictionary else {}
@@ -627,7 +667,7 @@ func _place(s: int, k: int, targets: Array = [], ctx := "place") -> void:
 		var m := int(d[key])
 		if not (t in targets) or m <= 0:
 			continue
-		m = mini(m, q - put)
+		m = mini(m, mini(q - put, room(t)))
 		if m <= 0:
 			continue
 		cab[t][s] += m
@@ -653,14 +693,15 @@ func _special(s: int, ci: int) -> void:
 		veto[s] = cur_round + 1
 		log_msg("%s tiene il Veto (vale fino alla fine del round %d)." % [pname(s), cur_round + 1])
 		return
-	if key in ["extra6", "province", "last_word"]:
+	if key in ["extra6", "province", "last_word", "fiesta", "anywhere", "ik_veto", "joker"]:
 		return
 	if stop_after >= 0 and turn_no > stop_after:
 		log_msg("Azione interrotta: %s non può eseguire l'azione speciale." % pname(s))
 		return
 	if not _special_possible(s, key):
 		return
-	if not await yesno(s, "do", "Eseguire l'azione «%s»?" % cd["title"], {"card": ci}, "Non eseguire", "Esegui"):
+	var optional: bool = cd.get("may", true) if intrigo else true
+	if optional and not await yesno(s, "do", "Eseguire l'azione «%s»?" % cd["title"], {"card": ci}, "Non eseguire", "Esegui"):
 		log_msg("%s non esegue l'azione speciale." % pname(s))
 		return
 	# veto degli altri giocatori, in senso orario
@@ -677,7 +718,13 @@ func _special(s: int, ci: int) -> void:
 	changed.emit()
 
 
+const SCORING_KEYS := ["score_any", "score4", "score5", "score67", "score_most", "score_least", "score_first", "score_castillo",
+	"score_secret", "score_inland", "score_coastal", "score_courts", "score_two", "score_purge", "score_three", "score_secret2"]
+
+
 func _do_special(s: int, ci: int, key: String) -> void:
+	if key in SCORING_KEYS and not reserve.is_empty():
+		await _pre_scoring()
 	match key:
 		"own4":
 			await _moves(s, {"max": 4, "own": 4, "foe": 0})
@@ -967,6 +1014,175 @@ func _do_special(s: int, ci: int, key: String) -> void:
 			log_msg("Ordine di sgombero: gli avversari riportano a corte i loro Caballeros del Castillo.")
 		"queen_jester":
 			await _take_character(s)
+		# ---------------- Intrigo & il Re
+		"ik_intrigue", "ik_intrigue_card":
+			await _ik_intrigue(s)
+		"ik_king", "ik_king_card":
+			var r := await pick_region(s, "king", "Il Re: dove metti il Re?", king_regions(), true)
+			if r >= 0 and r != king:
+				_move_king(r)
+		"bridge":
+			var pairs := []
+			for a in free_regions():
+				for b in adj(a):
+					if a < b and not taboo(b):
+						pairs.append([a, b])
+			if pairs.is_empty():
+				return
+			var a := await pick_region(s, "bridge_a", "Il ponte: prima regione", _uniq_first(pairs))
+			var opts := []
+			for pr in pairs:
+				if a in pr:
+					opts.append(pr[0] if pr[1] == a else pr[1])
+			var b := await pick_region(s, "bridge_b", "Il ponte: seconda regione (confinante con %s)" % rname(a), opts, false, {"first": a})
+			if not bridge.is_empty():
+				var o: int = bridge["owner"]
+				if bridge.get("guard", false):
+					court[o] += 1
+				log_msg("Il ponte di %s viene tolto." % pname(o))
+			var guard := false
+			if court[s] > 0:
+				court[s] -= 1
+				guard = true
+			elif prov[s] > 0:
+				prov[s] -= 1
+				guard = true
+			bridge = {"owner": s, "a": a, "b": b, "guard": guard}
+			log_msg("%s costruisce un ponte fra %s e %s." % [pname(s), rname(a), rname(b)])
+		"take6":
+			var allowed := []
+			for r in free_regions():
+				if total_in(r) <= 6 and not limit6.has(r):
+					allowed.append(r)
+			var r := await pick_region(s, "take6", "Prendi 6!: in quale regione metti la carta?", allowed)
+			if r >= 0:
+				limit6[r] = s
+				log_msg("%s mette «Prendi 6!» in %s: al massimo 6 Caballeros." % [pname(s), rname(r)])
+		"one_each_other":
+			for k in range(1, n):
+				var o := (s + k) % n
+				var allowed := _own_sources(o, false)
+				if allowed.is_empty():
+					continue
+				var r := await pick_region(s, "one_each", "Da quale regione rimandi alle province 1 Caballero di %s?" % pname(o), allowed, false, {"victim": o})
+				cab[r][o] -= 1
+				prov[o] += 1
+				flow(o, r, "prov", 1)
+				log_msg("%s rimanda 1 Caballero di %s da %s alle province." % [pname(s), pname(o), rname(r)])
+		"reserve":
+			if prov[s] > 0:
+				prov[s] -= 1
+				reserve[s] = reserve.get(s, 0) + 1
+				log_msg("%s mette un Caballero sulla carta Riserva." % pname(s))
+		"grande_move":
+			var r := await pick_region(s, "grande_move", "Trasferimento: in quale regione porti il Grande e 3 Caballeros?", free_regions())
+			if r < 0:
+				return
+			if grande[s] >= 0 and grande[s] != CAS and not taboo(grande[s]) and grande[s] != r:
+				grande[s] = r
+				log_msg("%s porta il Grande in %s." % [pname(s), rname(r)])
+			await _moves(s, {"max": 3, "own": 3, "foe": 0, "to": r})
+		"quarantine":
+			var allowed := []
+			for a in adj(king):
+				if not taboo(a):
+					allowed.append(a)
+			var r := await pick_region(s, "quarantine", "Quarantena: quale regione confinante col Re diventa tabù?", allowed)
+			if r < 0:
+				return
+			if not quarantine.is_empty():
+				quarantine[0] = r
+			else:
+				var m := mobile.find(-1)
+				if m < 0:
+					for k in 2:
+						if mobile[k] >= 0 and not taboo(mobile[k]):
+							m = k
+							break
+				if m < 0:
+					m = 0
+				mobile[m] = -2
+				quarantine = [r, m]
+			log_msg("%s mette in quarantena %s." % [pname(s), rname(r)])
+		"protection":
+			var r := await pick_region(s, "protection", "Protezione reale: quale regione proteggi per questo round?", free_regions())
+			if r >= 0:
+				protected[r] = cur_round
+				log_msg("%s pone %s sotto la protezione reale." % [pname(s), rname(r)])
+		"remove_faceup":
+			var opts := []
+			for r in limit6:
+				opts.append({"label": "«Prendi 6!» in %s (di %s)" % [rname(r), pname(limit6[r])], "r": r, "s": -1})
+			for t in reserve:
+				opts.append({"label": "Riserva di %s" % pname(t), "r": -1, "s": t})
+			if opts.is_empty():
+				return
+			var i := await pick(s, "remove_faceup", "Quale carta scoperta togli?", opts)
+			var o: Dictionary = opts[i]
+			if int(o["r"]) >= 0:
+				limit6.erase(int(o["r"]))
+				log_msg("%s toglie «Prendi 6!» da %s." % [pname(s), rname(int(o["r"]))])
+			else:
+				var t := int(o["s"])
+				prov[t] += reserve[t]
+				reserve.erase(t)
+				log_msg("%s toglie la Riserva di %s: il Caballero torna nelle province." % [pname(s), pname(t)])
+		"double_region":
+			var r := await pick_region(s, "double_region", "Valore doppio: scegli in segreto la regione", region_cards_free(), false, {"secret": true})
+			if r >= 0:
+				double[s] = r
+				log_msg("%s tiene coperta una carta regione (Valore doppio)." % pname(s))
+		"score_two":
+			var allowed := []
+			for r in map_regions():
+				if cab[r][s] != 2:
+					continue
+				for t in n:
+					if t != s and cab[r][t] >= 2:
+						allowed.append(r)
+						break
+			var r := await pick_region(s, "score_any", "Punteggio speciale: quale regione (2 tuoi Caballeros, senza maggioranza)?", allowed)
+			if r >= 0:
+				score_region(r)
+		"score_purge":
+			var r := await pick_region(s, "score_purge", "Punteggio speciale: quale regione valuti (poi si svuota)?", free_regions())
+			if r >= 0:
+				score_region(r)
+				for t in n:
+					var q: int = cab[r][t]
+					if q > 0:
+						cab[r][t] = 0
+						prov[t] += q
+						flow(t, r, "prov", q)
+				log_msg("Tutti i Caballeros di %s tornano nelle province." % rname(r))
+		"score_three":
+			var pool := map_regions()
+			var chosen := []
+			for k in 3:
+				var r := await pick_region(s, "score_three", "Punteggio speciale: scegli la %dª regione" % (k + 1), pool, false, {"chosen": chosen.duplicate()})
+				chosen.append(r)
+				pool.erase(r)
+			var others := []
+			for t in n:
+				if t != s:
+					others.append(t)
+			var o := await pick_player(s, "score_three_who", "Chi decide quale delle 3 regioni valutare?", others, false, {"chosen": chosen})
+			var r := await pick_region(o, "score_three_pick", "Quale fra %s valuti?" % ", ".join(chosen.map(func(x): return rname(x))), chosen)
+			log_msg("%s sceglie di valutare %s." % [pname(o), rname(r)])
+			score_region(r)
+		"score_secret2":
+			var picks := {}
+			for k in n:
+				var o := (s + k) % n
+				picks[o] = await pick_region(o, "secret_score2", "Punteggio speciale: scegli una regione col disco (si valutano quelle scelte da almeno 2)", range(9), false, {"secret": true})
+			var cnt := {}
+			for o in picks:
+				cnt[picks[o]] = cnt.get(picks[o], 0) + 1
+			fx.emit("discs", {"picks": picks})
+			await pause_point({"kind": "discs", "picks": picks, "title": "Dischi rivelati"})
+			for r in 9:
+				if cnt.get(r, 0) >= 2:
+					score_region(r)
 
 
 func _special_possible(s: int, key: String) -> bool:
@@ -991,6 +1207,12 @@ func _special_possible(s: int, key: String) -> bool:
 			return not _available_cards().is_empty()
 		"espionage":
 			return not espionage.has(s)
+		"reserve":
+			return prov[s] > 0
+		"remove_faceup":
+			return not limit6.is_empty() or not reserve.is_empty()
+		"double_region":
+			return not double.has(s) and not region_cards_free().is_empty()
 		"free_choice":
 			return not free_choice.has(s)
 	return true
@@ -1006,7 +1228,7 @@ func _mobile_options() -> Array:
 
 func _mobile_targets(m: int) -> Array:
 	var out := []
-	if mobile[m] >= 0 and taboo(mobile[m]):
+	if mobile[m] == -2 or (mobile[m] >= 0 and taboo(mobile[m])):
 		return out
 	var regs := map_regions()
 	regs.append(CAS)
@@ -1041,12 +1263,16 @@ func _move_king(r: int) -> void:
 ## Movimento di Caballeros sul tabellone. spec: max, own, foe, single.
 ## Risposta: [[da, a, posto], ...]
 func _moves(s: int, spec: Dictionary) -> void:
-	var req := {"type": "moves", "ctx": "moves", "title": _moves_title(spec), "spec": spec}
+	var req := {"type": "moves", "ctx": "moves", "title": spec.get("title", _moves_title(spec)), "spec": spec}
 	var r = await decide(s, req)
 	_apply_moves(s, r, spec)
 
 
 func _moves_title(spec: Dictionary) -> String:
+	if spec.has("to"):
+		return "Porta fino a %d tuoi Caballeros in %s" % [spec["max"], rname(spec["to"])]
+	if spec.get("from", -1) >= 0 and spec["own"] == 0:
+		return "Sposta un Caballero avversario da %s" % rname(spec["from"])
 	if spec.get("from", -1) >= 0:
 		return "Ridistribuisci i tuoi Caballeros da %s" % rname(spec["from"])
 	if spec.get("single", false):
@@ -1114,6 +1340,12 @@ func move_ok(s: int, spec: Dictionary, a: int, b: int, p: int, own: int, foe: in
 		return false
 	var fr := int(spec.get("from", -1))
 	if fr >= 0 and a != fr:
+		return false
+	if spec.has("to") and b != int(spec["to"]):
+		return false
+	if spec.has("pair") and not (a in spec["pair"] and b in spec["pair"]):
+		return false
+	if room(b) <= 0:
 		return false
 	if spec.get("single", false) and src >= 0 and a != src:
 		return false
@@ -1347,6 +1579,225 @@ func _take_character(s: int) -> void:
 		log_msg("%s prende il Giullare." % pname(s))
 
 
+# ================================================================ Intrigo & il Re
+
+func _uniq_first(pairs: Array) -> Array:
+	var out := []
+	for pr in pairs:
+		for x in pr:
+			if not (x in out):
+				out.append(x)
+	return out
+
+
+## Preparazione: ognuno sceglie le sue 13 carte, poi mette un Caballero col disco segreto.
+func _ik_setup() -> void:
+	for s in n:
+		var r = await decide(s, {"type": "deck", "ctx": "deck", "title": "Scegli le 13 carte con cui giocherai", "cards": D.ik_cards(), "n": 13, "secret": true})
+		var pick13 := []
+		if r is Array:
+			for c in r:
+				var ci := int(c)
+				if ci in D.ik_cards() and not (ci in pick13):
+					pick13.append(ci)
+		for ci in D.IK_SUGGESTED.map(func(v): return D.ik_by_val(v)):
+			if pick13.size() >= 13:
+				break
+			if not (ci in pick13):
+				pick13.append(ci)
+		pick13 = pick13.slice(0, 13)
+		pick13.sort()
+		hand[s] = pick13
+	log_msg("Tutti hanno scelto le loro 13 carte.")
+	var picks := {}
+	for s in n:
+		picks[s] = await pick_region(s, "ik_start", "Disco segreto: in quale regione metti un Caballero?", range(9), false, {"secret": true})
+	for s in picks:
+		var r: int = picks[s]
+		if taboo(r) or court[s] <= 0:
+			continue
+		court[s] -= 1
+		cab[r][s] += 1
+		flow(s, "court", r, 1)
+	var txt := []
+	for s in picks:
+		txt.append("%s → %s" % [pname(s), rname(picks[s])])
+	log_msg("Dischi: " + ", ".join(txt) + ".")
+	changed.emit()
+
+
+func ik_val(ci: int) -> int:
+	return int(D.CARDS[ci]["val"]) if ci >= 0 else 0
+
+
+func _ik_round() -> void:
+	log_msg("— Round %d —" % cur_round)
+	for s in n:
+		played[s] = 0
+		ik_played[s] = -1
+		cab_card[s] = 0
+	king_holder = -1
+	intrigue_holder = -1
+	turn_no = 0
+	phase = "power"
+	changed.emit()
+	var seq := []
+	var used := []
+	for k in n:
+		var s := (start_seat + k) % n
+		var legal := []
+		for ci in hand[s]:
+			if ik_val(ci) == 0 or not (ik_val(ci) in used):
+				legal.append(ci)
+		if legal.is_empty():
+			legal = hand[s].duplicate()
+		var c = await decide(s, {"type": "ik_power", "ctx": "ik_power", "title": "Gioca una carta azione", "legal": legal, "used": used.duplicate(), "hand": hand[s].duplicate()})
+		var ci := int(c) if (c is int or c is float) else -1
+		if not (ci in legal):
+			ci = legal[0]
+		hand[s].erase(ci)
+		discard[s].append(ci)
+		ik_played[s] = ci
+		played[s] = ik_val(ci)
+		if ik_val(ci) > 0:
+			used.append(ik_val(ci))
+		seq.append(s)
+		log_msg("%s gioca %s." % [pname(s), "il Jolly" if ik_val(ci) == 0 else "la carta %d" % ik_val(ci)])
+		changed.emit()
+	# Jolly: chi l'ha giocato sceglie adesso la carta vera
+	for s in seq:
+		if ik_val(ik_played[s]) != 0:
+			continue
+		var legal := []
+		for ci in hand[s]:
+			if ik_val(ci) > 0 and not (ik_val(ci) in used):
+				legal.append(ci)
+		if legal.is_empty():
+			continue
+		var c = await decide(s, {"type": "ik_power", "ctx": "joker", "title": "Jolly: scegli la carta da giocare", "legal": legal, "used": used.duplicate(), "hand": hand[s].duplicate()})
+		var ci := int(c) if (c is int or c is float) else -1
+		if not (ci in legal):
+			ci = legal[0]
+		hand[s].erase(ci)
+		discard[s].append(ci)
+		ik_played[s] = ci
+		played[s] = ik_val(ci)
+		used.append(ik_val(ci))
+		log_msg("%s col Jolly gioca la carta %d." % [pname(s), ik_val(ci)])
+	order = seq.duplicate()
+	order.sort_custom(func(a, b): return played[a] > played[b])
+	var cabs: Array = D.IK_CAB[clampi(n, 2, 5)]
+	for i in order.size():
+		cab_card[order[i]] = cabs[mini(i, cabs.size() - 1)]
+	king_holder = order[0]
+	intrigue_holder = order.back()
+	log_msg("Carta del Re a %s, carta dell'Intrigo a %s." % [pname(king_holder), pname(intrigue_holder)])
+	for s in n:
+		if ik_played[s] >= 0 and D.CARDS[ik_played[s]]["key"] == "ik_veto":
+			veto[s] = cur_round
+	phase = "turn"
+	changed.emit()
+	for s in order:
+		if game_over:
+			return
+		await _ik_turn(s)
+	start_seat = order.back()
+	acting = -1
+	for s in veto.keys():
+		if veto[s] <= cur_round:
+			veto.erase(s)
+	for r in protected.keys():
+		if protected[r] <= cur_round:
+			protected.erase(r)
+	changed.emit()
+
+
+func _ik_turn(s: int) -> void:
+	acting = s
+	turn_no += 1
+	var ci: int = ik_played[s]
+	var cd := card(ci)
+	log_msg("Turno di %s." % pname(s))
+	# il ponte: prima del turno il proprietario sposta liberamente i suoi Caballeros
+	if not bridge.is_empty() and bridge["owner"] == s:
+		var a: int = bridge["a"]
+		var b: int = bridge["b"]
+		if not taboo(a) and not taboo(b) and cab[a][s] + cab[b][s] > 0:
+			var q: int = cab[a][s] + cab[b][s]
+			await _moves(s, {"max": q, "own": q, "foe": 0, "pair": [a, b], "title": "Il ponte: sposta i tuoi Caballeros fra %s e %s" % [rname(a), rname(b)]})
+	# 1. dalle province alla corte (quanti ne mostra la carta)
+	var nc: int = int(cd.get("pc", 0))
+	var take: int = mini(nc, prov[s])
+	prov[s] -= take
+	court[s] += take
+	flow(s, "prov", "court", take)
+	if take > 0:
+		log_msg("%s porta %d Caballeros dalle province alla corte." % [pname(s), take])
+	var short: int = nc - take
+	if short > 0 and _own_movable(s) > 0:
+		var r = await decide(s, {"type": "take", "ctx": "fill", "title": "Le province sono vuote: puoi riportare a corte fino a %d Caballeros dal tabellone" % short,
+			"n": short, "exact": false, "sources": _own_sources(s, false)})
+		_apply_take(s, r, short, false, "court")
+	# 2. quale azione speciale: il Re e l'Intrigo sostituiscono la propria carta
+	var act := ci
+	if s == king_holder or s == intrigue_holder:
+		var special_card: int = D.IK_KING if s == king_holder else D.IK_INTRIGUE
+		act = special_card
+		if n <= 3:
+			var o := await pick(s, "ik_which", "Quale azione esegui?", [{"label": card(special_card)["title"]}, {"label": cd["title"] + " (la tua carta)"}], {"card": special_card, "card2": ci})
+			act = special_card if o == 0 else ci
+	var akey: String = card(act)["key"]
+	var k: int = cab_card[s]
+	if akey == "fiesta":
+		k = 5
+	place_any = akey == "anywhere"
+	var special_first := false
+	if court[s] > 0 and not (akey in ["fiesta", "anywhere", "ik_veto"]):
+		var o := await pick(s, "order", "Cosa fai prima?", [{"label": "Piazzo prima i Caballeros"}, {"label": "Prima l'azione speciale"}], {"card": act})
+		special_first = o == 1
+	if special_first:
+		await _special(s, act)
+		await _place(s, k)
+	else:
+		await _place(s, k)
+		await _special(s, act)
+	place_any = false
+	changed.emit()
+
+
+## Azione dell'Intrigo: da una regione, 1 Caballero di un avversario oppure fino a tutti i propri.
+func _ik_intrigue(s: int) -> void:
+	var srcs := []
+	for r in free_regions():
+		if total_in(r) > 0:
+			srcs.append(r)
+	var r := await pick_region(s, "intrigue_src", "Intrigo: da quale regione sposti?", srcs, true)
+	if r < 0:
+		return
+	var foe := false
+	var mine: int = cab[r][s]
+	var others := total_in(r) - mine
+	if mine > 0 and others > 0:
+		foe = await pick(s, "intrigue_mode", "Intrigo: cosa sposti da %s?" % rname(r), [{"label": "Fino a tutti i miei %d Caballeros" % mine}, {"label": "Un Caballero avversario"}], {"region": r}) == 1
+	else:
+		foe = mine == 0
+	if foe:
+		await _moves(s, {"max": 1, "own": 0, "foe": 1, "from": r})
+	else:
+		await _moves(s, {"max": mine, "own": mine, "foe": 0, "from": r})
+
+
+## Prima di ogni valutazione: chi ha la Riserva può mettere il suo Caballero in una regione.
+func _pre_scoring() -> void:
+	for s in reserve.keys():
+		var r := await pick_region(s, "reserve_deploy", "Riserva: metti adesso il tuo Caballero in una regione?", free_regions(), true)
+		if r >= 0 and room(r) > 0:
+			cab[r][s] += reserve[s]
+			flow(s, "court", r, reserve[s])
+			log_msg("%s mette il Caballero della Riserva in %s." % [pname(s), rname(r)])
+			reserve.erase(s)
+
+
 # ================================================================ valutazioni
 
 ## Punti di una regione se fosse valutata adesso: {posto: punti}.
@@ -1431,6 +1882,12 @@ func general_scoring() -> void:
 	if grandissimo and inq_owner >= 0:
 		log_msg("%s restituisce il Grande Inquisitore." % pname(inq_owner))
 		inq_owner = -1
+	if not quarantine.is_empty():
+		log_msg("Finisce la quarantena di %s." % rname(quarantine[0]))
+		mobile[quarantine[1]] = -1
+		quarantine = []
+	if not reserve.is_empty():
+		await _pre_scoring()
 	# dischi segreti per chi ha Caballeros (o il Grande) nel Castillo; lo Spionaggio sceglie dopo
 	var picks := {}
 	var allowed := disk_regions()
@@ -1481,12 +1938,25 @@ func general_scoring() -> void:
 		var vb := vals(b)
 		var vsum := [va[0] + vb[0], va[1] + vb[1], va[2] + vb[2]]
 		_add_points(points_for(cnt, vsum, false, [a, b]), "dell'Alleanza %s + %s" % [rname(a), rname(b)], a)
+	var dbl := {}
+	for s in double:
+		dbl[double[s]] = true
+		log_msg("Valore doppio di %s: %s vale doppio." % [pname(s), rname(double[s])])
 	for r in map_regions():
 		if skip.has(r) or done.has(r):
 			continue
-		score_region(r)
+		if dbl.has(r):
+			var pts := region_points(r)
+			for t in pts:
+				pts[t] *= 2
+			_add_points(pts, "%s (doppio)" % rname(r), r)
+		else:
+			score_region(r)
+	if not bridge.is_empty():
+		_add_points({bridge["owner"]: 1}, "del ponte")
 	boycott = {}
 	alliance = {}
+	double = {}
 	if revolution >= 0:
 		log_msg("Finita la rivoluzione: il Re torna in Portogallo.")
 		revolution = -1
@@ -1511,11 +1981,14 @@ func _empty_castillo(picks: Dictionary) -> Array:
 			grande[s] = t
 		if q <= 0:
 			continue
-		flow(s, CAS, "court" if taboo(t) else t, q)
-		if taboo(t) or t < 0:
-			court[s] += q
-		else:
-			cab[t][s] += q
+		var fit: int = q if (t < 0 or taboo(t)) else mini(q, room(t))
+		if t >= 0 and not taboo(t) and fit > 0:
+			cab[t][s] += fit
+			flow(s, CAS, t, fit)
+		if q - fit > 0 or taboo(t) or t < 0:
+			var back: int = q if (taboo(t) or t < 0) else q - fit
+			court[s] += back
+			flow(s, CAS, "court", back)
 		txt.append("%s: %d in %s" % [pname(s), q, rname(t)])
 	return txt
 
@@ -1535,4 +2008,4 @@ func _end_game() -> void:
 
 ## Impronta dello stato (per verificare che due dispositivi online abbiano la stessa partita).
 func fingerprint() -> String:
-	return "%s|%s|%s|%s|%s|%d|%s|%s|%d|%d" % [str(score), str(cab), str(court), str(prov), str(grande), king, str(mobile), str(ships), queen, jester]
+	return "%s|%s|%s|%s|%s|%d|%s|%s|%d|%d|%s" % [str(score), str(cab), str(court), str(prov), str(grande), king, str(mobile), str(ships), queen, jester, str(hand)]

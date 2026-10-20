@@ -40,6 +40,10 @@ func decide(e: EGEngine, s: int, req: Dictionary):
 			return _region(req)
 		"pick":
 			return _pick(req)
+		"deck":
+			return _deck(req)
+		"ik_power":
+			return _ik_power(req)
 	return 0
 
 
@@ -429,6 +433,54 @@ func _region_value(ctx: String, r: int, req: Dictionary) -> float:
 				eng.cab[r][t] += eng.cab[eng.JAIL][t]
 				eng.cab[eng.JAIL][t] = 0
 			return evaluate(me)
+		"ik_start", "reserve_deploy":
+			if eng.room(r) <= 0:
+				return -INF
+			eng.cab[r][me] += 1
+			if ctx == "ik_start":
+				eng.court[me] -= 1
+			var v := evaluate(me)
+			return v if ctx == "ik_start" or v > evaluate(me) else v
+		"grande_move":
+			if eng.grande[me] >= 0 and eng.grande[me] != CAS and not eng.taboo(eng.grande[me]):
+				eng.grande[me] = r
+			_moves({"max": 3, "own": 3, "foe": 0, "to": r}, me, true)
+			return evaluate(me)
+		"take6":
+			# conviene dove sono in testa (blocca gli altri)
+			var c: Array = eng.cab[r]
+			var best_o := 0
+			for t in eng.n:
+				if t != me:
+					best_o = maxi(best_o, c[t])
+			return float(c[me] - best_o) * float(eng.vals(r)[0]) / 5.0
+		"quarantine", "protection":
+			# si protegge una regione dove si è in vantaggio
+			return _gain_value(eng.region_points(r), me)
+		"double_region":
+			return _gain_value(eng.region_points(r), me)
+		"score_purge", "score_three_pick":
+			return _gain_value(eng.region_points(r), me)
+		"score_three":
+			# le regioni meno buone per l'avversario che deciderà: si scelgono quelle buone per me
+			return _gain_value(eng.region_points(r), me) - (5.0 if r in req.get("chosen", []) else 0.0)
+		"bridge_a", "bridge_b":
+			var t := 0.0
+			for b in eng.adj(r):
+				t = maxf(t, float(eng.cab[r][me] + eng.cab[b][me]))
+			return t + (0.0 if ctx == "bridge_a" else float(eng.cab[r][me]))
+		"intrigue_src":
+			var best := -INF
+			var sn := snap()
+			if eng.cab[r][me] > 0:
+				_moves({"max": eng.cab[r][me], "own": eng.cab[r][me], "foe": 0, "from": r}, me, true)
+				best = evaluate(me)
+				restore(sn)
+			if eng.total_in(r) - eng.cab[r][me] > 0:
+				_moves({"max": 1, "own": 0, "foe": 1, "from": r}, me, true)
+				best = maxf(best, evaluate(me))
+				restore(sn)
+			return best
 		"exile":
 			var two: bool = req.get("two", false)
 			var q: int = mini(2, eng.cab[r][me]) if two else eng.cab[r][me]
@@ -643,6 +695,42 @@ func _pick(req: Dictionary) -> int:
 			return best
 		"ship_steal":
 			return 0
+		"ik_which":
+			var sn := snap()
+			var a := _special_value(int(req["card"]))
+			restore(sn)
+			var b := _special_value(int(req["card2"]))
+			restore(sn)
+			return 0 if a >= b else 1
+		"intrigue_mode":
+			var r := int(req["region"])
+			var sn := snap()
+			_moves({"max": eng.cab[r][me], "own": eng.cab[r][me], "foe": 0, "from": r}, me, true)
+			var a := evaluate(me)
+			restore(sn)
+			_moves({"max": 1, "own": 0, "foe": 1, "from": r}, me, true)
+			var b := evaluate(me)
+			restore(sn)
+			return 0 if a >= b else 1
+		"remove_faceup":
+			# toglie una carta avversaria
+			for i in opts.size():
+				var o: Dictionary = opts[i]
+				if int(o["r"]) >= 0 and eng.limit6[int(o["r"])] != me:
+					return i
+				if int(o["s"]) >= 0 and int(o["s"]) != me:
+					return i
+			return 0
+		"score_three_who":
+			# chi deve scegliere: quello con meno punti (sceglierà la regione migliore per sé)
+			var best := 0
+			var low := 99999
+			for i in opts.size():
+				var t := int(opts[i]["p"])
+				if eng.score[t] < low:
+					low = eng.score[t]
+					best = i
+			return best
 	return 0
 
 
@@ -972,6 +1060,119 @@ func _special_value(ci: int) -> float:
 			eng.score[me] += best
 		"queen_jester":
 			eng.score[me] += 1.4
+		"ik_intrigue", "ik_intrigue_card":
+			var sn := snap()
+			var best := evaluate(me)
+			var best_sn := sn
+			for r in regs:
+				if eng.taboo(r) or eng.total_in(r) == 0:
+					continue
+				var v := _region_value("intrigue_src", r, {})
+				restore(sn)
+				if v > best:
+					best = v
+					var mine: int = eng.cab[r][me]
+					var sn2 := snap()
+					if mine > 0:
+						_moves({"max": mine, "own": mine, "foe": 0, "from": r}, me, true)
+					var va := evaluate(me)
+					var sa := snap()
+					restore(sn2)
+					_moves({"max": 1, "own": 0, "foe": 1, "from": r}, me, true)
+					if va >= evaluate(me):
+						best_sn = sa
+					else:
+						best_sn = snap()
+					restore(sn)
+			restore(best_sn)
+		"ik_king", "ik_king_card":
+			var sn := snap()
+			var best: int = eng.king
+			var bv := evaluate(me)
+			for r in eng.king_regions():
+				var v := _region_value("king", r, {})
+				restore(sn)
+				if v > bv:
+					bv = v
+					best = r
+			eng.king = best
+		"bridge":
+			eng.score[me] += 1.6
+		"take6":
+			eng.score[me] += 0.4
+		"one_each_other":
+			for t in eng.n:
+				if t == me:
+					continue
+				var best := -1
+				var bv := -INF
+				for r in regs:
+					if eng.taboo(r) or eng.cab[r][t] <= 0:
+						continue
+					eng.cab[r][t] -= 1
+					var v := evaluate(me)
+					eng.cab[r][t] += 1
+					if v > bv:
+						bv = v
+						best = r
+				if best >= 0:
+					eng.cab[best][t] -= 1
+					eng.prov[t] += 1
+		"reserve":
+			eng.score[me] += 1.0
+		"grande_move":
+			var sn := snap()
+			var best_sn := sn
+			var bv := evaluate(me)
+			for r in regs:
+				if eng.taboo(r):
+					continue
+				var v := _region_value("grande_move", r, {})
+				if v > bv:
+					bv = v
+					best_sn = snap()
+				restore(sn)
+			restore(best_sn)
+		"quarantine", "protection":
+			eng.score[me] += 0.8
+		"remove_faceup":
+			eng.score[me] += 0.3
+		"double_region":
+			var best := 0.0
+			for r in eng.region_cards_free():
+				best = maxf(best, _gain_value(eng.region_points(r), me))
+			eng.score[me] += best * 0.6
+		"score_two":
+			var best := -INF
+			var br := -1
+			for r in regs:
+				if eng.cab[r][me] != 2:
+					continue
+				var v := _gain_value(eng.region_points(r), me)
+				if v > best:
+					best = v
+					br = r
+			if br >= 0:
+				_sim_score(br)
+		"score_purge":
+			var best := -INF
+			var br := -1
+			for r in regs:
+				if eng.taboo(r):
+					continue
+				var v := _gain_value(eng.region_points(r), me)
+				if v > best:
+					best = v
+					br = r
+			if br >= 0:
+				_sim_score(br)
+				for t in eng.n:
+					eng.prov[t] += eng.cab[br][t]
+					eng.cab[br][t] = 0
+		"score_three":
+			eng.score[me] += 1.0
+		"score_secret2":
+			eng.score[me] += 0.5
 	return evaluate(me)
 
 
@@ -984,6 +1185,8 @@ func _sim_score(r: int, first_only := false) -> void:
 ## Piano completo per una carta: valore, ordine (azione prima o dopo il piazzamento).
 func _plan(ci: int) -> Dictionary:
 	var pile: int = D.card_n(ci)
+	if eng.intrigo:
+		pile = 5 if D.CARDS[ci]["key"] == "fiesta" else eng.cab_card[me]
 	var fp: bool = D.CARDS[ci]["key"] == "province"
 	if fp:
 		return {"value": _province_value(pile), "special_first": false}
@@ -1099,6 +1302,112 @@ func _action(req: Dictionary) -> int:
 		if vals[c] > bv:
 			bv = vals[c]
 			best = c
+	return best
+
+
+# ================================================================ Intrigo & il Re
+
+func _deck(req: Dictionary) -> Array:
+	if OS.get_environment("EG_RANDDECK") == "1":
+		# solo per i test: mazzo a caso, per provare tutte le carte
+		var all := D.ik_cards()
+		for i in range(all.size() - 1, 0, -1):
+			var j := rng.randi() % (i + 1)
+			var t = all[i]
+			all[i] = all[j]
+			all[j] = t
+		return all.slice(0, 13)
+	var vals: Array = D.IK_SUGGESTED.duplicate()
+	if level == 0:
+		# un po' di varietà
+		var alt := [15, 25, 35, 40, 70, 80, 90, 110, 130, 145]
+		for k in 3:
+			vals[1 + rng.randi() % (vals.size() - 1)] = alt[rng.randi() % alt.size()]
+	var out := []
+	for v in vals:
+		var ci := D.ik_by_val(v)
+		if ci >= 0 and not (ci in out):
+			out.append(ci)
+	for ci in D.ik_cards():
+		if out.size() >= 13:
+			break
+		if not (ci in out):
+			out.append(ci)
+	return out
+
+
+## Valore di giocare la carta ci arrivando in posizione rank (0 = la più alta del round).
+func _ik_value(ci: int, rank: int) -> float:
+	var sn := snap()
+	var cabs: Array = D.IK_CAB[clampi(eng.n, 2, 5)]
+	var k: int = cabs[clampi(rank, 0, cabs.size() - 1)]
+	var pc: int = mini(int(D.CARDS[ci].get("pc", 0)), eng.prov[me])
+	eng.prov[me] -= pc
+	eng.court[me] += pc
+	var act := ci
+	if rank == 0:
+		act = D.IK_KING
+	elif rank >= eng.n - 1:
+		act = D.IK_INTRIGUE
+	var key: String = D.CARDS[act]["key"]
+	if key == "fiesta":
+		k = 5
+	var targets: Array = eng.any_targets() if key == "anywhere" else eng.place_targets(me)
+	_apply_place(_place(k, targets), me)
+	var base := evaluate(me)
+	var v := maxf(base, _special_value(act)) if not D.CARDS[act].get("may", false) else maxf(base, _special_value(act))
+	if not D.CARDS[act].get("may", true):
+		v = _special_value(act)
+	restore(sn)
+	return v
+
+
+func _ik_power(req: Dictionary) -> int:
+	var legal: Array = req["legal"]
+	var used: Array = req["used"]
+	var waiting := []
+	for t in eng.n:
+		if t != me and eng.ik_played[t] < 0:
+			waiting.append(t)
+	var rounds_left: int = eng.rounds.size() - eng.round_i
+	var avg := 0.0
+	for c in eng.hand[me]:
+		avg += eng.ik_val(c)
+	avg /= maxf(1.0, eng.hand[me].size())
+	var best: int = legal[0]
+	var bv := -INF
+	for ci in legal:
+		var v := eng.ik_val(ci)
+		var u := 0.0
+		if v == 0:
+			# il Jolly: sceglie dopo, quindi vale la carta migliore della mano, con un piccolo premio
+			if req["ctx"] == "joker":
+				continue
+			u = 0.6 + (1.5 if eng.hand[me].size() > rounds_left else -3.0)
+		else:
+			var k := 0.0
+			for w in used:
+				if w > v:
+					k += 1.0
+			for t in waiting:
+				var hi := 0
+				var tot := 0
+				for h in eng.hand[t]:
+					if eng.ik_val(h) in used:
+						continue
+					tot += 1
+					if eng.ik_val(h) > v:
+						hi += 1
+				k += float(hi) / maxf(1.0, tot)
+			var rank := clampi(int(round(k)), 0, eng.n - 1)
+			u = _ik_value(ci, rank) - evaluate(me)
+			# le carte alte servono anche dopo
+			var spare: int = eng.hand[me].size() - rounds_left
+			u -= P("ikk", 0.012) * (float(v) - avg) * (1.0 if spare < 2 else 0.5)
+		u += _noise() * 1.5
+		if u > bv:
+			bv = u
+			best = ci
 	return best
 
 

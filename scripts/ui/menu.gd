@@ -15,6 +15,7 @@ var variant := "base"
 const VARIANTS := [
 	["base", "Gioco base", "Le regole della scatola di El Grande."],
 	["grandissimo", "Grandissimo", "Portogallo, nave, prigione, Regina e Giullare, Grande Inquisitore e 19 nuove carte azione."],
+	["intrigo", "Intrigo & il Re", "Ognuno sceglie 13 delle sue 31 carte azione: la più alta prende la carta del Re, la più bassa l'Intrigo."],
 ]
 var msg: Label
 

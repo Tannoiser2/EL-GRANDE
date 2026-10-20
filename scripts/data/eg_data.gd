@@ -169,8 +169,50 @@ const CARDS := [
 	{"pile": 6, "n": 2, "sym": "ship", "key": "evict_castillo", "title": "Ordine di sgombero", "text": "Gli avversari riportano nella loro corte tutti i loro Caballeros del Castillo."},
 	{"pile": 6, "n": 2, "sym": "ship", "key": "score_courts", "title": "Punteggio speciale", "text": "Le corti dei giocatori si valutano come una regione (6 / 5 / 1)."},
 	{"pile": 7, "n": 3, "sym": "", "key": "queen_jester", "title": "7ª Pila", "text": "Prendi la Regina o il Giullare nella tua corte."},
+	# ---- Intrigo & il Re: le 31 carte azione/potere di ogni giocatore, poi la carta del Re e quella dell'Intrigo
+	{"pile": 0, "val": 0, "pc": 0, "key": "joker", "may": false, "img": "J", "title": "Jolly", "text": "Quando tutti gli altri hanno scelto la loro carta, ne scegli una dalla tua mano."},
+	{"pile": 0, "val": 10, "pc": 6, "key": "ik_intrigue", "may": false, "img": "10", "title": "Intrigo", "text": "Esegui l'azione dell'Intrigo."},
+	{"pile": 0, "val": 15, "pc": 0, "key": "fiesta", "may": false, "img": "15", "title": "Festa", "text": "Non prendi Caballeros dalle province, ma puoi mettere 5 Caballeros dalla corte sulla mappa."},
+	{"pile": 0, "val": 20, "pc": 5, "key": "anywhere", "may": false, "img": "20", "title": "Ovunque", "text": "Metti i tuoi Caballeros in qualunque regione tranne quella del Re."},
+	{"pile": 0, "val": 25, "pc": 1, "key": "espionage", "may": false, "img": "25", "title": "Spionaggio", "text": "Alla prossima valutazione generale non usi il disco: porti i tuoi Caballeros del Castillo dove vuoi dopo gli altri."},
+	{"pile": 0, "val": 30, "pc": 5, "key": "decay_all", "may": false, "img": "30", "title": "Perdita di autorità", "text": "Tutti gli altri rimandano alle province tutti i Caballeros della loro corte."},
+	{"pile": 0, "val": 35, "pc": 4, "key": "conspiracy", "may": false, "img": "35", "title": "Colpo di stato!", "text": "Metti nel Castillo i Grandi di tutti gli avversari."},
+	{"pile": 0, "val": 40, "pc": 4, "key": "ik_veto", "may": true, "img": "40", "title": "Veto", "text": "In questo round puoi porre il veto all'azione speciale di un altro giocatore."},
+	{"pile": 0, "val": 50, "pc": 4, "key": "king_returns", "may": false, "img": "50", "title": "Il ritorno del Re", "text": "Tutti gli altri rimandano alle province 3 Caballeros, dalla corte o dalle regioni."},
+	{"pile": 0, "val": 60, "pc": 4, "key": "score67", "may": false, "img": "60", "title": "Punteggio speciale", "text": "Si valutano le regioni con 6 o 7 punti per il primo posto."},
+	{"pile": 0, "val": 63, "pc": 3, "key": "bridge", "may": false, "img": "63", "title": "Il ponte", "text": "Metti un ponte fra 2 regioni confinanti con un tuo Caballero di guardia. Prima di ogni tuo turno sposti liberamente i tuoi Caballeros fra le due regioni; alla valutazione generale il ponte vale 1 punto."},
+	{"pile": 0, "val": 66, "pc": 4, "key": "take6", "may": false, "img": "66", "title": "Prendi 6!", "text": "Metti la carta in una regione con 6 Caballeros o meno: da ora ne può avere al massimo 6."},
+	{"pile": 0, "val": 70, "pc": 3, "key": "one_each_other", "may": false, "img": "70", "title": "Esilio", "text": "Rimanda alle province 1 Caballero di ogni altro giocatore, preso dalle regioni."},
+	{"pile": 0, "val": 75, "pc": 3, "key": "reserve", "may": false, "img": "75", "title": "Riserva", "text": "Metti 1 Caballero delle province su questa carta: prima di qualunque valutazione puoi spostarlo in una regione."},
+	{"pile": 0, "val": 80, "pc": 3, "key": "grande_move", "may": true, "img": "80", "title": "Trasferimento", "text": "Puoi spostare il tuo Grande e 3 tuoi Caballeros in un'altra regione."},
+	{"pile": 0, "val": 90, "pc": 3, "key": "mobile", "may": false, "img": "90", "title": "Segnapunti mobile", "text": "Metti o sposta un segnapunti mobile su una regione."},
+	{"pile": 0, "val": 93, "pc": 3, "key": "quarantine", "may": false, "img": "93", "title": "Quarantena", "text": "Un segnapunti mobile capovolto in una regione confinante col Re: la regione è tabù fino a un'altra Quarantena o alla prossima valutazione generale."},
+	{"pile": 0, "val": 95, "pc": 3, "key": "protection", "may": false, "img": "95", "title": "Protezione reale", "text": "Scegli una regione: per questo round è protetta come quella del Re."},
+	{"pile": 0, "val": 100, "pc": 3, "key": "score4", "may": false, "img": "100", "title": "Punteggio speciale", "text": "Si valutano le regioni con 4 punti per il primo posto."},
+	{"pile": 0, "val": 110, "pc": 2, "key": "score_castillo", "may": false, "img": "110", "title": "Punteggio speciale", "text": "Si valuta il Castillo."},
+	{"pile": 0, "val": 120, "pc": 2, "key": "score5", "may": false, "img": "120", "title": "Punteggio speciale", "text": "Si valutano le regioni con 5 punti per il primo posto."},
+	{"pile": 0, "val": 125, "pc": 3, "key": "remove_faceup", "may": false, "img": "125", "title": "Rimuovi carta", "text": "Togli una carta «Lascia la carta scoperta!» (Prendi 6! o Riserva)."},
+	{"pile": 0, "val": 130, "pc": 2, "key": "double_region", "may": false, "img": "130", "title": "Valore doppio", "text": "Scegli in segreto una regione: alla prossima valutazione generale vale doppio."},
+	{"pile": 0, "val": 135, "pc": 2, "key": "score_two", "may": false, "img": "135", "title": "Punteggio speciale", "text": "Si valuta una regione dove hai 2 Caballeros ma non la maggioranza."},
+	{"pile": 0, "val": 140, "pc": 1, "key": "storm", "may": false, "img": "140", "title": "Assalto al Castillo", "text": "Manda nel Castillo 2 Caballeros di ogni giocatore: degli avversari dalle regioni, i tuoi dalla corte."},
+	{"pile": 0, "val": 145, "pc": 0, "key": "score_purge", "may": false, "img": "145", "title": "Punteggio speciale", "text": "Si valuta una regione a scelta; poi i suoi Caballeros tornano nelle province."},
+	{"pile": 0, "val": 150, "pc": 1, "key": "score_any", "may": false, "img": "150", "title": "Punteggio speciale", "text": "Si valuta la regione che scegli tu."},
+	{"pile": 0, "val": 155, "pc": 1, "key": "score_three", "may": false, "img": "155", "title": "Punteggio speciale", "text": "Scegli 3 regioni e un altro giocatore: sarà lui a decidere quale valutare."},
+	{"pile": 0, "val": 160, "pc": 0, "key": "advisor", "may": false, "img": "160", "title": "Editto reale", "text": "Muovi il Re in una regione confinante."},
+	{"pile": 0, "val": 170, "pc": 0, "key": "score_secret2", "may": false, "img": "170", "title": "Punteggio speciale", "text": "Ognuno sceglie una regione col disco: si valutano quelle scelte da 2 o più giocatori."},
+	{"pile": 0, "val": 180, "pc": 0, "key": "ik_king", "may": true, "img": "180", "title": "Il Re", "text": "Esegui l'azione del Re."},
+	{"pile": 0, "val": -1, "pc": 0, "key": "ik_king_card", "may": true, "img": "re", "title": "Il Re", "text": "Puoi mettere il Re in qualunque regione."},
+	{"pile": 0, "val": -1, "pc": 0, "key": "ik_intrigue_card", "may": false, "img": "intrigo", "title": "Intrigo", "text": "Sposta 1 Caballero di un avversario, oppure fino a tutti i tuoi Caballeros, da una regione ad altre regioni."},
 ]
 const QUEEN_CARD := 64
+const IK_FIRST := 65             # prima carta di Intrigo & il Re (Jolly)
+const IK_COUNT := 31
+const IK_KING := 96              # carta del Re (Intrigo & il Re)
+const IK_INTRIGUE := 97          # carta dell'Intrigo
+## Carte Caballero (Intrigo & il Re) per numero di giocatori.
+const IK_CAB := {2: [4, 2], 3: [5, 3, 1], 4: [5, 4, 2, 1], 5: [5, 4, 3, 2, 1]}
+## Le 13 carte consigliate per la prima partita (scelte dall'IA a livello facile).
+const IK_SUGGESTED := [0, 10, 20, 30, 50, 60, 100, 120, 140, 150, 160, 170, 180]
 const COURTS_VALS := [6, 5, 1]
 const KING_CARD := 44
 
@@ -180,10 +222,26 @@ static func card_n(ci: int) -> int:
 	return int(CARDS[ci].get("n", CARDS[ci]["pile"]))
 
 
-static func card_tex_path(ci: int) -> String:
+static func card_tex_path(ci: int, color_key := "blue") -> String:
+	if ci >= IK_FIRST:
+		var img: String = CARDS[ci]["img"]
+		if img == "re" or img == "intrigo":
+			return "res://assets/intrigo/%s.jpg" % img
+		return "res://assets/intrigo/%s_%s.jpg" % [color_key, img]
 	if ci >= 45:
 		return "res://assets/grandissimo/c%d.jpg" % ci
 	return "res://assets/actions_it/c%d.jpg" % ci
+
+
+static func ik_cards() -> Array:
+	return range(IK_FIRST, IK_FIRST + IK_COUNT)
+
+
+static func ik_by_val(v: int) -> int:
+	for ci in ik_cards():
+		if CARDS[ci]["val"] == v:
+			return ci
+	return -1
 
 
 static func pile_cards(p: int) -> Array:
