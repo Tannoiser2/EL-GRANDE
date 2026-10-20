@@ -29,9 +29,12 @@ func _run(games: int, np: int, lvl: int) -> void:
 		var tseat := g % np
 		for i in np:
 			seats.append({"color": i, "ai": true, "name": "IA%d" % i, "level": lvl if i != tseat else (int(OS.get_environment("EG_LVL0")) if OS.get_environment("EG_LVL0") != "" else lvl)})
-		eng.setup({"seats": seats, "seed": 1000 + g, "short": OS.get_environment("EG_SHORT") == "1"})
+		eng.setup({"seats": seats, "seed": int(OS.get_environment("EG_SEED0") if OS.get_environment("EG_SEED0") != "" else "1000") + g, "short": OS.get_environment("EG_SHORT") == "1"})
 		for i in np:
-			eng.ais[i] = EGAI.new(seats[i]["level"], 77 + g * 10 + i)
+			if OS.get_environment("EG_BASE") == "1" and i != tseat:
+				eng.ais[i] = EGAIBase.new(seats[i]["level"], 77 + g * 10 + i)
+			else:
+				eng.ais[i] = EGAI.new(seats[i]["level"], 77 + g * 10 + i)
 			if i == tseat:
 				eng.ais[i].exp = OS.get_environment("EG_EXP")
 		eng.changed.connect(_check.bind(eng))

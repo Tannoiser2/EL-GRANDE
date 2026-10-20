@@ -17,6 +17,17 @@ Adattamento digitale non ufficiale, per uso personale, di **El Grande** di Wolfg
 - Tabellone originale ripulito dai riquadri del modulo TTS, carte azione rifatte in italiano con le illustrazioni
   originali, carte potere originali. Titoli in UnifrakturMaguntia, testi in Alegreya (caratteri OFL).
 
+## L'IA
+Valuta la posizione come i punti che ogni giocatore farebbe se tutto venisse valutato adesso, rispetto agli
+avversari (con più peso a chi è in testa), e simula ogni alternativa: carta azione, ordine fra piazzamento e azione
+speciale, dove piazzare, chi spostare con gli intrighi, dove mandare il Re o il Grande. In più:
+- le maggioranze contano meno quando la valutazione generale è lontana, perché possono ancora cambiare;
+- i Caballeros nel Castillo valgono per quello che renderanno spostandoli nella regione migliore;
+- i Caballeros a corte perdono valore verso la fine della partita.
+I pesi sono stati tarati con migliaia di partite simulate contro la versione precedente: in 4 giocatori la nuova
+vince il 43% delle partite (contro il 25% atteso), in 3 il 44%, in 5 il 31%.
+"Facile" e "Normale" aggiungono un po' di casualità alle scelte, "Difficile" no.
+
 ## Interpretazioni della versione digitale
 - Il regolamento italiano dà Valencia 5/3/2: vale il tabellone (5/3/1).
 - Le due carte "Autorità in declino" del modulo TTS hanno la stessa immagine; come da regolamento una fa rimandare
@@ -50,6 +61,7 @@ tests/                        simulazioni, screenshot, prova online con finto Fi
 ## Prove
 ```
 godot --headless --path . -s tests/sim.gd -- 10 4 1                     # 10 partite fra IA, 4 giocatori
+EG_BASE=1 EG_LVL0=2 godot --headless --path . -s tests/sim.gd -- 60 4 2  # IA attuale contro quella di riferimento (tests/ai_base.gd)
 python3 tests/firebase_mock.py 8765 & …tests/online_play.gd             # due dispositivi online sul finto Firebase
 xvfb-run godot --path . -s res://tests/shot.gd -- game                  # screenshot
 ```
