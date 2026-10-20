@@ -111,6 +111,11 @@ func region_term(r: int, p: int) -> float:
 	var margin: int = c[p] - best_o
 	if c[p] > 0:
 		val += P("mg", 0.12) * clampf(margin, -3, 3) * float(eng.vals(r)[0]) / 5.0
+	if eng.colonie and (r == eng.AME or r == eng.MED) and c[p] > 0:
+		var free: int = c[p] - eng.carried(p, r)
+		var dv: float = eng.discs[r]["gold"] * 6.0 + eng.discs[r]["wares"] * 4.0
+		if free > 0 and dv > 0:
+			val += 0.35 * minf(dv, free * 6.0)
 	if r == CAS:
 		val += P("cas", 0.2) * c[p]
 		if c[p] > 0 and P("casr", 0.8) > 0.0:
@@ -134,6 +139,8 @@ func _redeploy(p: int, q: int) -> float:
 
 func global_term(p: int) -> float:
 	var v: float = eng.score[p] + wc * eng.court[p] + 0.04 * eng.prov[p]
+	if eng.colonie:
+		v += 0.5 * _cargo(p)
 	var omax := -999.0
 	var osum := 0.0
 	for t in eng.n:
@@ -144,6 +151,14 @@ func global_term(p: int) -> float:
 		osum += w
 	var oth := omax if eng.n == 2 else om * omax + (1.0 - om) * osum / float(eng.n - 1)
 	return v - oth
+
+
+## Valore dei dischi d'oro e di merci che p sta portando.
+func _cargo(p: int) -> float:
+	var t := 0.0
+	for r in eng.carry[p]:
+		t += eng.carry[p][r]["gold"] * 6.0 + eng.carry[p][r]["wares"] * 4.0
+	return t
 
 
 func evaluate(p: int) -> float:
@@ -157,7 +172,8 @@ func snap() -> Dictionary:
 	return {"cab": eng.cab.duplicate(true), "court": eng.court.duplicate(), "prov": eng.prov.duplicate(),
 		"score": eng.score.duplicate(), "grande": eng.grande.duplicate(), "king": eng.king,
 		"mobile": eng.mobile.duplicate(), "hand": eng.hand.duplicate(true), "discard": eng.discard.duplicate(true),
-		"inq_pos": eng.inq_pos, "revolution": eng.revolution}
+		"inq_pos": eng.inq_pos, "revolution": eng.revolution, "inq_owner": eng.inq_owner, "black": eng.black.duplicate(),
+		"limit_r": eng.limit_r, "lim_on": eng.lim_on.duplicate()}
 
 
 func restore(sn: Dictionary) -> void:
@@ -172,6 +188,10 @@ func restore(sn: Dictionary) -> void:
 	eng.discard = sn["discard"].duplicate(true)
 	eng.inq_pos = sn["inq_pos"]
 	eng.revolution = sn["revolution"]
+	eng.inq_owner = sn["inq_owner"]
+	eng.black = sn["black"].duplicate()
+	eng.limit_r = sn["limit_r"]
+	eng.lim_on = sn["lim_on"].duplicate()
 
 
 # ================================================================ piazzamento
@@ -232,15 +252,20 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 	var own := 0
 	var foe := 0
 	var src := -1
+	var used := {}
+	var cargo_moved := {}
 	for step in int(spec["max"]):
 		var best = null
 		var bv := 0.05
 		# le due regioni cambiano indipendentemente: si calcolano a parte il togliere e l'aggiungere
 		var base := {}
-		var srcs: Array = eng.move_sources()
-		var dests: Array = eng.move_dests()
+		var srcs: Array = eng.move_sources(spec)
+		var dests: Array = eng.move_dests(spec)
 		for r in dests:
 			base[r] = region_term(r, p)
+		for r in srcs:
+			if not base.has(r):
+				base[r] = region_term(r, p)
 		var add := {}
 		for q in eng.n:
 			if (q == p and own >= int(spec["own"])) or (q != p and foe >= int(spec["foe"])):
@@ -257,6 +282,9 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 					continue
 				if not _src_ok(p, spec, a, q, own, foe, src):
 					continue
+				if spec.has("caps") and spec["caps"].has(a) and int(used.get(a, 0)) >= int(spec["caps"][a]):
+					continue
+				var cargo: bool = eng.colonie and q == p and eng.carried(p, a) - int(cargo_moved.get(a, 0)) > 0
 				eng.cab[a][q] -= 1
 				var da: float = region_term(a, p) - base[a]
 				eng.cab[a][q] += 1
@@ -264,7 +292,18 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 				for b in dests:
 					if b == a:
 						continue
+					if spec.has("to") and b != int(spec["to"]):
+						continue
+					if eng.room(b) <= 0:
+						continue
 					var v: float = da + row[b] + _noise() * 0.3
+					if cargo:
+						if b < 9 and not eng.taboo(b):
+							v += 5.0
+						elif b == eng.SHIPC:
+							v += 2.5
+						elif b == CAS:
+							v -= 5.0
 					if v > bv:
 						bv = v
 						best = [a, b, q]
@@ -272,6 +311,9 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 			break
 		eng.cab[best[0]][best[2]] -= 1
 		eng.cab[best[1]][best[2]] += 1
+		used[best[0]] = int(used.get(best[0], 0)) + 1
+		if eng.colonie and best[2] == p and eng.carried(p, best[0]) - int(cargo_moved.get(best[0], 0)) > 0:
+			cargo_moved[best[0]] = int(cargo_moved.get(best[0], 0)) + 1
 		out.append(best)
 		if best[2] == p:
 			own += 1
@@ -433,6 +475,28 @@ func _region_value(ctx: String, r: int, req: Dictionary) -> float:
 				eng.cab[r][t] += eng.cab[eng.JAIL][t]
 				eng.cab[eng.JAIL][t] = 0
 			return evaluate(me)
+		"col_start":
+			if eng.taboo(r):
+				return evaluate(me) - 2.0
+			eng.cab[r][me] += 2
+			eng.court[me] -= 2
+			return evaluate(me)
+		"black_src":
+			return _black_value(r)
+		"black_dst":
+			var a0 := int(req.get("from", -1))
+			if a0 >= 0:
+				eng.black[a0] = int(eng.black.get(a0, 0)) - 1
+			eng.black[r] = int(eng.black.get(r, 0)) + 1
+			return evaluate(me)
+		"col_limit":
+			eng.limit_r = r
+			for t in eng.n:
+				eng.lim_on[t] = 0
+			eng.lim_on = eng._limit_counts(me)
+			return evaluate(me)
+		"col_later":
+			return evaluate(me) + 0.7 * _gain_value(eng.region_points(r), me)
 		"ik_start", "reserve_deploy":
 			if eng.room(r) <= 0:
 				return -INF
@@ -579,10 +643,68 @@ func _sim_evict(r: int) -> void:
 
 # ================================================================ scelte fra opzioni
 
+## Valore di togliere un Caballero nero da a (dove andrà lo decide _region con black_dst).
+func _black_value(a: int) -> float:
+	var best := -INF
+	for b in eng.free_regions():
+		if b == a or b == eng.FRA:
+			continue
+		eng.black[a] = int(eng.black.get(a, 0)) - 1
+		eng.black[b] = int(eng.black.get(b, 0)) + 1
+		best = maxf(best, evaluate(me))
+		eng.black[b] -= 1
+		eng.black[a] += 1
+	return best
+
+
 func _pick(req: Dictionary) -> int:
 	var ctx: String = req["ctx"]
 	var opts: Array = req["options"]
 	match ctx:
+		"col_choice":
+			var best := 0
+			var bv := -INF
+			for i in opts.size():
+				var sn := snap()
+				var c: int = opts[i]["c"]
+				var k: int = D.card_n(c) if i > 0 else int(eng.cab_card[me])
+				_apply_place(_place(k, eng.place_targets(me)), me)
+				var v := maxf(evaluate(me), _special_value(c)) + _noise()
+				restore(sn)
+				if v > bv:
+					bv = v
+					best = i
+			return best
+		"use_doppel":
+			var sn := snap()
+			var base := evaluate(me)
+			var v := _special_value(int(req["card"]))
+			restore(sn)
+			return 1 if v > base + 1.5 else 0
+		"use_remove":
+			# toglie la carta che più servirebbe a chi sta per scegliere
+			var actor := int(req["actor"])
+			var saved_me := me
+			me = actor
+			var base := evaluate(actor)
+			var vals := []
+			for i in opts.size():
+				if i == 0:
+					vals.append(0.0)
+					continue
+				vals.append(_plan(int(opts[i]["c"]))["value"] - base)
+			me = saved_me
+			var best := 0
+			var bv := 3.0
+			var sorted := vals.duplicate()
+			sorted.sort()
+			for i in range(1, opts.size()):
+				var second: float = sorted[sorted.size() - 2] if vals[i] == sorted.back() else sorted.back()
+				var d: float = vals[i] - second
+				if d > bv:
+					bv = d
+					best = i
+			return best
 		"order":
 			return 1 if _plan(int(req["card"]))["special_first"] else 0
 		"do":
@@ -739,6 +861,12 @@ func _pick(req: Dictionary) -> int:
 ## Valore dell'azione speciale per `me`, applicata allo stato (che resta modificato).
 func _special_value(ci: int) -> float:
 	var key: String = D.CARDS[ci]["key"]
+	if eng.colonie and not (key in ["col_remove", "col_doppel"]):
+		var g: int = mini(int(D.CARDS[ci].get("gold", 0)), eng.supply["gold"])
+		var w: int = mini(int(D.CARDS[ci].get("wares", 0)), eng.supply["wares"])
+		var fa: int = eng.cab[eng.AME][me] - eng.carried(me, eng.AME) - (1 if eng.viceroy == me else 0)
+		var fm: int = eng.cab[eng.MED][me] - eng.carried(me, eng.MED)
+		eng.score[me] += 0.5 * (mini(g, maxi(fa, 0)) * 6.0 + mini(w, maxi(fm, 0)) * 4.0)
 	match key:
 		"own4":
 			_moves({"max": 4, "own": 4, "foe": 0}, me, true)
@@ -974,6 +1102,68 @@ func _special_value(ci: int) -> float:
 			for t in eng.n:
 				if t != me and eng.grande[t] >= 0 and eng.grande[t] != CAS and not eng.taboo(eng.grande[t]):
 					eng.grande[t] = CAS
+		"col_gi":
+			eng.inq_owner = me
+			for j in 2:
+				var best_a := -1
+				var bv := evaluate(me) + 0.1
+				for r in eng.black.keys():
+					if eng.black[r] > 0 and not eng.taboo(r):
+						var v := _black_value(r)
+						if v > bv:
+							bv = v
+							best_a = r
+				if best_a < 0:
+					break
+				var best_b := -1
+				var bb := -INF
+				for b in eng.free_regions():
+					if b == best_a or b == eng.FRA:
+						continue
+					eng.black[best_a] -= 1
+					eng.black[b] = int(eng.black.get(b, 0)) + 1
+					var v2 := evaluate(me)
+					eng.black[b] -= 1
+					eng.black[best_a] += 1
+					if v2 > bb:
+						bb = v2
+						best_b = b
+				eng.black[best_a] -= 1
+				eng.black[best_b] = int(eng.black.get(best_b, 0)) + 1
+			eng.score[me] += 1.0
+		"col_limit":
+			var sn := snap()
+			var best := eng.limit_r
+			var bv := evaluate(me)
+			for r in eng.free_regions():
+				if r == eng.FRA or r == eng.limit_r:
+					continue
+				var v := _region_value("col_limit", r, {})
+				restore(sn)
+				if v > bv:
+					bv = v
+					best = r
+			eng.limit_r = best
+			eng.lim_on = eng._limit_counts(me)
+		"col_remove":
+			eng.score[me] += 1.0
+		"col_doppel":
+			eng.score[me] += 1.3
+		"col_transport":
+			_moves({"max": 3, "own": 3, "foe": 0}, me, true)
+		"col_score_new":
+			for r in [eng.FRA, eng.SHIPC, eng.AME, eng.MED]:
+				_sim_score(r)
+		"col_score_gi":
+			eng.inq_owner = me
+			for r in eng.black.keys():
+				if eng.black[r] > 0:
+					_sim_score(r)
+		"col_score_later":
+			var bv := 0.0
+			for r in eng.map_regions():
+				bv = maxf(bv, _gain_value(eng.region_points(r), me))
+			eng.score[me] += 0.7 * bv
 		"storm":
 			for t in eng.n:
 				if t == me:

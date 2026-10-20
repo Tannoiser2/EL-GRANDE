@@ -68,6 +68,13 @@ func update_info() -> void:
 			lines.append("Ha il Giullare: a ogni turno può regalare un Caballero delle province.")
 		if eng.inq_owner == seat:
 			lines.append("Ha il Grande Inquisitore fino alla prossima valutazione generale.")
+	if eng.colonie:
+		if eng.inq_owner == seat:
+			lines.append("Ha il Grande Inquisitore: i Caballeros neri contano per lui e a ogni turno porta un Caballero in più.")
+		if eng.captain == seat:
+			lines.append("È il Capitano della nave (+3).")
+		if eng.viceroy == seat:
+			lines.append("È il Viceré d'America (+5).")
 		if eng.saved.has(seat):
 			lines.append("Doppio turno: " + ", ".join(eng.saved[seat].map(func(c): return D.CARDS[c]["title"])))
 		if eng.alliance.has(seat):
@@ -130,6 +137,8 @@ func _draw() -> void:
 		rx = _grandissimo_tokens(rx)
 	if eng.intrigo:
 		rx = _intrigo_tags(rx)
+	if eng.colonie:
+		rx = _colonie_tags(rx)
 	# nastri dalle province alla carta e dalla carta alla corte
 	var rib := Color(col.r, col.g, col.b, 0.3)
 	var mid := prov_r.position.y + S * 0.5
@@ -191,6 +200,25 @@ func _intrigo_tags(rx: float) -> float:
 		rx = _tag_right(rx, "Doppio", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
 	if eng.espionage.has(seat):
 		rx = _tag_right(rx, "Spionaggio", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	return rx
+
+
+func _colonie_tags(rx: float) -> float:
+	if eng.inq_owner == seat:
+		rx = _tag_right(rx, "Inquisitore", Color(0.12, 0.12, 0.12), Color("#f6e8c8"))
+	if eng._holds(seat, "col_doppel"):
+		rx = _tag_right(rx, "Sosia", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	if eng._holds(seat, "col_remove"):
+		rx = _tag_right(rx, "Togli carta", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	if eng.free_choice.has(seat):
+		rx = _tag_right(rx, "Spostamento", Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	var g := 0
+	var w := 0
+	for r in eng.carry[seat]:
+		g += int(eng.carry[seat][r]["gold"])
+		w += int(eng.carry[seat][r]["wares"])
+	if g + w > 0:
+		rx = _tag_right(rx, "Porta %s" % ", ".join(([] if g == 0 else ["%d oro" % g]) + ([] if w == 0 else ["%d merci" % w])), Color(0.45, 0.32, 0.05), Color.WHITE)
 	return rx
 
 

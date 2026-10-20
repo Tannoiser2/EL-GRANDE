@@ -32,10 +32,10 @@ const REGIONS := [
 	{"id": 8, "name": "Valencia", "vals": [5, 3, 1], "rect": Rect2(948, 554, 162, 139), "box": Vector2(990, 447), "label": Vector2(980, 489)},
 	{"id": 9, "name": "Castillo", "vals": [5, 3, 1], "rect": Rect2(1118, 640, 124, 128), "box": Vector2(1220, 590), "label": Vector2(1180, 790)},
 	{"id": 10, "name": "Portogallo", "vals": [5, 0, 0], "rect": Rect2(246, 698, 124, 100), "box": Vector2(318, 720), "label": Vector2(330, 765)},
-	{"id": 11, "name": "Francia", "vals": [3, 0, 0], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
-	{"id": 12, "name": "Nave", "vals": [3, 0, 0], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
-	{"id": 13, "name": "America", "vals": [4, 2, 0], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
-	{"id": 14, "name": "Mediterraneo", "vals": [4, 2, 1], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
+	{"id": 11, "name": "Francia", "vals": [3, 1, 0], "rect": Rect2(930, 54, 380, 95), "box": Vector2(1022, 92), "label": Vector2.ZERO},
+	{"id": 12, "name": "Nave", "vals": [3, 0, 0], "rect": Rect2(1150, 424, 122, 143), "box": Vector2(1260, 520), "label": Vector2.ZERO},
+	{"id": 13, "name": "America", "vals": [4, 0, 0], "rect": Rect2(62, 55, 250, 91), "box": Vector2(262, 100), "label": Vector2.ZERO},
+	{"id": 14, "name": "Mediterraneo", "vals": [4, 2, 1], "rect": Rect2(1040, 790, 290, 147), "box": Vector2(1121, 887), "label": Vector2.ZERO},
 	{"id": 15, "name": "Nave", "vals": [0, 0, 0], "rect": Rect2(78, 92, 130, 80), "box": Vector2.ZERO, "label": Vector2(140, 180)},
 	{"id": 16, "name": "Prigione", "vals": [0, 0, 0], "rect": Rect2(130, 730, 92, 92), "box": Vector2.ZERO, "label": Vector2(176, 836)},
 ]
@@ -70,6 +70,14 @@ const ANCHORS := [
 	[Vector2(300, 760), Vector2(360, 775), Vector2(330, 720), Vector2(280, 735), Vector2(390, 740)],
 ]
 const SHIP_G_POS := Vector2(143, 132)
+## Colonie: dove si disegnano le tessere e i Caballeros (unità tabellone).
+const COL_TILES := {11: "france", 12: "ship", 13: "america", 14: "medit"}
+const COL_BADGES := {11: Rect2(1150, 62, 120, 80), 12: Rect2(1148, 428, 120, 70), 13: Rect2(170, 58, 105, 85), 14: Rect2(1160, 845, 165, 85)}
+## Posizioni speciali: Ambasciatore/Inviato/terzo posto in Francia, Capitano, Viceré.
+const FRANCE_SLOTS := [Vector2(1206, 81), Vector2(1229, 81), Vector2(1252, 81)]
+const CAPTAIN_POS := Vector2(1176, 551)
+const VICEROY_POS := Vector2(150, 113)
+const COL_COASTAL := [0, 1, 3, 6, 7, 8, 11]
 const JAIL_POS := Vector2(176, 776)
 const CASTILLO_POS := Vector2(1180, 705)
 
@@ -203,12 +211,26 @@ const CARDS := [
 	{"pile": 0, "val": 180, "pc": 0, "key": "ik_king", "may": true, "img": "180", "title": "Il Re", "text": "Esegui l'azione del Re."},
 	{"pile": 0, "val": -1, "pc": 0, "key": "ik_king_card", "may": true, "img": "re", "title": "Il Re", "text": "Puoi mettere il Re in qualunque regione."},
 	{"pile": 0, "val": -1, "pc": 0, "key": "ik_intrigue_card", "may": false, "img": "intrigo", "title": "Intrigo", "text": "Sposta 1 Caballero di un avversario, oppure fino a tutti i tuoi Caballeros, da una regione ad altre regioni."},
+	# ---- Il Grande Inquisitore e le Colonie: carta dell'Inquisitore (6ª pila) e 11 carte della 7ª pila
+	{"pile": 8, "n": 3, "key": "col_gi", "img": 0, "title": "Grande Inquisitore", "text": "Prendi il Grande Inquisitore e sposta fino a 2 dei suoi Caballeros. Finché è da te, a ogni tuo turno porti 1 Caballero in più dalle province alla corte o vicino al Re."},
+	{"pile": 9, "n": 3, "key": "col_limit", "img": 1, "wares": 2, "title": "Tavola limite", "text": "Sposta la tavola limite."},
+	{"pile": 9, "n": 3, "key": "col_limit", "img": 2, "wares": 2, "title": "Tavola limite", "text": "Sposta la tavola limite."},
+	{"pile": 9, "n": 3, "key": "col_limit", "img": 3, "wares": 2, "title": "Tavola limite", "text": "Sposta la tavola limite."},
+	{"pile": 9, "n": 1, "key": "col_remove", "img": 4, "gold": 1, "wares": 1, "title": "Togli carta", "text": "Tienila davanti a te: quando vuoi togli una carta azione scoperta (metti i due dischi)."},
+	{"pile": 9, "n": 2, "key": "col_doppel", "img": 5, "gold": 1, "wares": 1, "title": "Il sosia", "text": "Tienila davanti a te: esegui anche tu l'azione speciale appena usata da un altro giocatore (metti i due dischi)."},
+	{"pile": 9, "n": 2, "key": "col_transport", "img": 6, "gold": 1, "wares": 2, "title": "Trasporto", "text": "Sposta 3 tuoi Caballeros: puoi metterli sull'oro o sulle merci appena posati."},
+	{"pile": 9, "n": 3, "key": "col_score_new", "img": 7, "wares": 2, "title": "Punteggio speciale", "text": "Si valutano le nuove regioni: Francia, nave, America e Mediterraneo."},
+	{"pile": 9, "n": 2, "key": "col_score_gi", "img": 8, "gold": 1, "wares": 1, "title": "Punteggio speciale", "text": "Prendi il Grande Inquisitore e valuta le regioni dove sono i suoi Caballeros."},
+	{"pile": 9, "n": 2, "key": "free_choice", "img": 9, "gold": 1, "wares": 1, "title": "Spostamento", "text": "Alla prossima valutazione generale, svuotato il Castillo, sposti due tuoi Caballeros."},
+	{"pile": 9, "n": 3, "key": "col_score_later", "img": 10, "gold": 2, "title": "Punteggio speciale", "text": "Metti la carta su una regione: alla fine del prossimo round viene valutata."},
+	{"pile": 9, "n": 3, "key": "conspiracy", "img": 11, "gold": 1, "wares": 1, "title": "Cospirazione", "text": "Metti nel Castillo i Grandi degli altri giocatori."},
 ]
 const QUEEN_CARD := 64
 const IK_FIRST := 65             # prima carta di Intrigo & il Re (Jolly)
 const IK_COUNT := 31
 const IK_KING := 96              # carta del Re (Intrigo & il Re)
 const IK_INTRIGUE := 97          # carta dell'Intrigo
+const COL_GI := 98               # carta del Grande Inquisitore delle Colonie (6ª pila)
 ## Carte Caballero (Intrigo & il Re) per numero di giocatori.
 const IK_CAB := {2: [4, 2], 3: [5, 3, 1], 4: [5, 4, 2, 1], 5: [5, 4, 3, 2, 1]}
 ## Le 13 carte consigliate per la prima partita (scelte dall'IA a livello facile).
@@ -223,6 +245,8 @@ static func card_n(ci: int) -> int:
 
 
 static func card_tex_path(ci: int, color_key := "blue") -> String:
+	if ci >= COL_GI:
+		return "res://assets/colonie/k%d.jpg" % int(CARDS[ci]["img"])
 	if ci >= IK_FIRST:
 		var img: String = CARDS[ci]["img"]
 		if img == "re" or img == "intrigo":
@@ -271,7 +295,11 @@ static func track_pos(score: int) -> Vector2:
 
 
 ## Regione del tabellone sotto un punto (unità tabellone), -1 se nessuna.
-static func region_at(p: Vector2) -> int:
+static func region_at(p: Vector2, colonie := false) -> int:
+	if colonie:
+		for r in COL_TILES:
+			if REGIONS[r]["rect"].has_point(p):
+				return r
 	if p.distance_to(CASTILLO_POS) < 75:
 		return CASTILLO
 	if p.distance_to(SHIP_G_POS) < 70:

@@ -38,7 +38,7 @@ func bp(p: Vector2) -> Vector2:
 
 func _gui_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseMotion:
-		var r := D.region_at(ev.position / sc)
+		var r := D.region_at(ev.position / sc, eng != null and eng.colonie)
 		if r >= 0 and not _region_hit(r, ev.position / sc):
 			r = -1
 		if r != hover:
@@ -46,7 +46,7 @@ func _gui_input(ev: InputEvent) -> void:
 			region_hovered.emit(r)
 			queue_redraw()
 	elif ev is InputEventMouseButton and ev.pressed:
-		var r := D.region_at(ev.position / sc)
+		var r := D.region_at(ev.position / sc, eng != null and eng.colonie)
 		if r >= 0 and _region_hit(r, ev.position / sc):
 			region_clicked.emit(r, ev.button_index)
 			accept_event()
@@ -58,6 +58,8 @@ func _region_hit(r: int, p: Vector2) -> bool:
 		return eng != null and (r == CAS or eng.grandissimo)
 	if eng != null and not (r in eng.map_regions()):
 		return false
+	if r in D.COL_TILES:
+		return D.REGIONS[r]["rect"].has_point(p)
 	for a in D.ANCHORS[r]:
 		if p.distance_to(a) < 110:
 			return true
@@ -86,9 +88,9 @@ func _draw() -> void:
 			continue
 		var a := 1.0 - age / 2.2
 		_draw_region_frame(r, Color(1, 0.8, 0.2, 0.25 * a), Color(1, 0.85, 0.3, a), 6.0)
-	# segna-punti mobili
+	# segna-punti mobili (sulle Colonie si disegnano sopra le tessere)
 	for m in 2:
-		if eng.mobile[m] >= 0:
+		if eng.mobile[m] >= 0 and not (eng.mobile[m] in D.COL_TILES):
 			_draw_mobile(m, D.REGIONS[eng.mobile[m]]["box"])
 	# Grandissimo: Portogallo, nave, prigione, Caballeros neri dell'Inquisitore
 	if eng.grandissimo:
@@ -96,11 +98,15 @@ func _draw() -> void:
 	# Intrigo & il Re: ponte, «Prendi 6!», quarantena, protezione
 	if eng.intrigo:
 		_draw_intrigo()
+	# Colonie: Francia, nave, America, Mediterraneo, dischi, tavola limite, Caballeros neri
+	if eng.colonie:
+		_draw_colonie(counts)
 	# Castillo
 	_draw_castillo(counts[CAS])
 	# Caballeros nelle regioni
 	for r in eng.map_regions():
-		_draw_cabs(r, counts[r])
+		if not (r in D.COL_TILES):
+			_draw_cabs(r, counts[r])
 	# Grandi
 	var by_reg := {}
 	for s in eng.n:
@@ -249,6 +255,75 @@ func _draw_grandissimo(counts: Array) -> void:
 		var c2 := bp(rr.position + Vector2(18, rr.size.y - 14))
 		UI.draw_cube(self, c2, 22 * sc, Color("#151515"), Color(0.9, 0.85, 0.75, 0.9))
 		UI.draw_cube(self, c2 + Vector2(20, 4) * sc, 22 * sc, Color("#151515"), Color(0.9, 0.85, 0.75, 0.9))
+
+
+func _draw_colonie(counts: Array) -> void:
+	# tessere delle nuove regioni
+	for r in D.COL_TILES:
+		var rr: Rect2 = D.REGIONS[r]["rect"]
+		var tex: Texture2D = UI.tex("res://assets/colonie/%s.png" % D.COL_TILES[r])
+		var dst := Rect2(bp(rr.position), rr.size * sc)
+		draw_rect(dst.grow(2), Color(0, 0, 0, 0.25))
+		draw_texture_rect(tex, dst, false)
+	for m in 2:
+		if eng.mobile[m] in D.COL_TILES:
+			_draw_mobile(m, D.REGIONS[eng.mobile[m]]["box"])
+	# dischi liberi
+	var gold: Texture2D = UI.tex("res://assets/colonie/gold.png")
+	var wares: Texture2D = UI.tex("res://assets/colonie/wares.png")
+	var am: Rect2 = D.REGIONS[D.AMERICA]["rect"]
+	for i in int(eng.discs[D.AMERICA]["gold"]):
+		draw_texture_rect(gold, Rect2(bp(am.position + Vector2(64 + i * 18, am.size.y - 34)), Vector2(30, 30) * sc), false)
+	var me: Rect2 = D.REGIONS[D.MEDIT]["rect"]
+	for i in int(eng.discs[D.MEDIT]["wares"]):
+		draw_texture_rect(wares, Rect2(bp(me.position + Vector2(me.size.x - 40 - (i % 6) * 22, 6 + (i / 6) * 24)), Vector2(30, 30) * sc), false)
+	# Caballeros nelle nuove regioni (con i dischi che portano)
+	for r in D.COL_TILES:
+		var br: Rect2 = D.COL_BADGES[r]
+		var present := []
+		for s in eng.n:
+			if counts[r][s] > 0:
+				present.append(s)
+		for i in present.size():
+			var s: int = present[i]
+			var c := bp(br.position + Vector2(22 + (i % 3) * 46, 20 + (i / 3) * 42))
+			_badge(c, s, counts[r][s])
+			var k := 0
+			if eng.carry[s].has(r):
+				for kind in ["gold", "wares"]:
+					for j in int(eng.carry[s][r][kind]):
+						draw_texture_rect(gold if kind == "gold" else wares, Rect2(c + Vector2(-26 + k * 10, 4) * sc, Vector2(18, 18) * sc), false)
+						k += 1
+	# Ambasciatore, Inviato, Capitano, Viceré
+	for i in 3:
+		var o: int = eng.france_slots[i]
+		if o >= 0:
+			UI.draw_cube(self, bp(D.FRANCE_SLOTS[i]), 18 * sc, UI.pcol(eng.players[o]["color"]), Color(1, 0.9, 0.5))
+	if eng.captain >= 0:
+		UI.draw_cube(self, bp(D.CAPTAIN_POS), 20 * sc, UI.pcol(eng.players[eng.captain]["color"]), Color(1, 0.9, 0.5))
+	if eng.viceroy >= 0:
+		UI.draw_cube(self, bp(D.VICEROY_POS), 20 * sc, UI.pcol(eng.players[eng.viceroy]["color"]), Color(1, 0.9, 0.5))
+	# tavola limite
+	if eng.limit_r >= 0:
+		var lr: Rect2 = D.REGIONS[eng.limit_r]["rect"]
+		var lt: Texture2D = UI.tex("res://assets/colonie/limit%d.png" % eng.limit_n)
+		var w := 70.0 if eng.limit_n == 10 else 52.0
+		var pos := lr.position + Vector2(lr.size.x - w - 2, lr.size.y - 38)
+		draw_texture_rect(lt, Rect2(bp(pos), Vector2(w, w * lt.get_height() / lt.get_width()) * sc), false)
+		draw_string_outline(UI.font_sc_b, bp(pos + Vector2(0, -2)), "max %d" % eng.limit_n, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * sc), 4, Color(0, 0, 0, 0.9))
+		draw_string(UI.font_sc_b, bp(pos + Vector2(0, -2)), "max %d" % eng.limit_n, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * sc), Color("#ffe39a"))
+	# Caballeros neri del Grande Inquisitore
+	for r in eng.black:
+		var q: int = eng.black[r]
+		if q <= 0:
+			continue
+		var rr: Rect2 = D.COL_BADGES[r] if r in D.COL_BADGES else D.REGIONS[r]["rect"]
+		var c2 := bp(rr.position + Vector2(16, rr.size.y - 12))
+		for j in mini(q, 3):
+			UI.draw_cube(self, c2 + Vector2(j * 8, -j * 5) * sc, 22 * sc, Color("#151515"), Color(0.9, 0.85, 0.75, 0.9))
+		if q > 1:
+			draw_string_outline(UI.font_sc_b, c2 + Vector2(22, 12) * sc, str(q), HORIZONTAL_ALIGNMENT_LEFT, -1, int(22 * sc), 4, Color(0, 0, 0, 0.9))
+			draw_string(UI.font_sc_b, c2 + Vector2(22, 12) * sc, str(q), HORIZONTAL_ALIGNMENT_LEFT, -1, int(22 * sc), Color.WHITE)
 
 
 func _draw_castillo(counts: Array) -> void:

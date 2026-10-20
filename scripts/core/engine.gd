@@ -9,7 +9,8 @@ extends Node
 ## Grandissimo, 16 = prigione (vedi EGData). Le righe di `cab` esistono sempre; le espansioni attivano
 ## le regioni che servono.
 ##
-## Varianti (config["variant"]): "base", "grandissimo", "intrigo" (Intrigo & il Re).
+## Varianti (config["variant"]): "base", "grandissimo", "intrigo" (Intrigo & il Re), "colonie" (Il Grande
+## Inquisitore e le Colonie), "re_colonie" (Il Re e le Colonie: Intrigo & il Re più le Colonie).
 
 signal changed
 signal log_added(text: String)
@@ -24,6 +25,10 @@ const CAS := 9
 const POR := 10
 const SHIP := 15
 const JAIL := 16
+const FRA := 11
+const SHIPC := 12
+const AME := 13
+const MED := 14
 
 var rng := RandomNumberGenerator.new()
 var ai_delay := 0.0
@@ -99,6 +104,22 @@ var protected := {}              # regione -> round della Protezione reale
 var double := {}                 # posto -> regione che vale doppio (segreta)
 var place_any := false           # carta «Ovunque»: si piazza in qualunque regione
 
+# ---- Il Grande Inquisitore e le Colonie
+var colonie := false
+var total_cab := 30              # Caballeros di ogni giocatore in gioco
+var black := {}                  # regione -> Caballeros neri dell'Inquisitore
+var france_slots := [-1, -1, -1] # Ambasciatore (+2), Inviato (+1), terzo posto
+var captain := -1
+var viceroy := -1
+var limit_r := -1                # regione con la tavola limite
+var limit_n := 6
+var lim_on: Array = []           # Caballeros di ogni giocatore sulla tavola limite
+var discs := {13: {"gold": 1, "wares": 0}, 14: {"gold": 0, "wares": 2}}   # dischi liberi
+var supply := {"gold": 4, "wares": 9}
+var carry: Array = []            # carry[posto][regione] = {"gold", "wares"} portati dai Caballeros
+var held := {}                   # posto -> [chiavi delle carte tenute davanti a sé]
+var later := []                  # [regione, round]: «Punteggio speciale» alla fine del round
+
 
 # ================================================================ preparazione
 
@@ -115,7 +136,9 @@ func setup(config: Dictionary) -> void:
 	castillo_hidden = bool(config.get("castillo_hidden", false))
 	variant = str(config.get("variant", "base"))
 	grandissimo = variant == "grandissimo"
-	intrigo = variant == "intrigo"
+	intrigo = variant == "intrigo" or variant == "re_colonie"
+	colonie = variant == "colonie" or variant == "re_colonie"
+	total_cab = 36 if colonie else 30
 	var short := bool(config.get("short", false))
 	rounds = [2, 3, 5, 6, 8, 9] if short else [1, 2, 3, 4, 5, 6, 7, 8, 9]
 	cab = []
@@ -131,9 +154,13 @@ func setup(config: Dictionary) -> void:
 	hand = []
 	discard = []
 	played = []
+	lim_on = []
+	carry = []
 	for s in n:
-		court.append(7)
-		prov.append(21)
+		court.append(9 if colonie else 7)
+		prov.append(25 if colonie else 21)
+		lim_on.append(0)
+		carry.append({})
 		score.append(0)
 		grande.append(-1)
 		var h := []
@@ -150,6 +177,9 @@ func setup(config: Dictionary) -> void:
 	if grandissimo:
 		piles[4] = D.pile_cards(6)
 		_shuffle(piles[4])
+	if colonie:
+		piles[5] = D.pile_cards(9)
+		_shuffle(piles[5])
 	# carte regione: la prima va al Re, poi una a testa per la regione di provenienza
 	var regs := range(9)
 	_shuffle(regs)
@@ -160,6 +190,13 @@ func setup(config: Dictionary) -> void:
 	if grandissimo:
 		# i 2 Caballeros neri dell'Inquisitore in una regione pescata a caso
 		inq_pos = regs[n + 1] if n + 1 < 9 else regs[8]
+	if colonie:
+		# altre due carte regione: 2 Caballeros neri in ognuna; una terza per la tavola limite
+		var rest: Array = regs.slice(n + 1)
+		black[rest[0]] = 2
+		black[rest[1]] = 2
+		limit_r = rest[2] if rest.size() > 2 else rest[0]
+		limit_n = 6 if n <= 3 else 10
 	start_seat = rng.randi() % n
 	phase = "setup"
 
@@ -178,6 +215,8 @@ func pname(s: int) -> String:
 
 ## Caballeros che passano da un posto all'altro (per le animazioni): "prov", "court" o una regione.
 func flow(s: int, from, to, q: int) -> void:
+	if colonie and q > 0:
+		_col_flow(s, from, to, q)
 	if q > 0 and not headless:
 		fx.emit("flow", {"seat": s, "from": from, "to": to, "n": q})
 
@@ -284,11 +323,17 @@ func map_regions() -> Array:
 	var out := range(9)
 	if grandissimo:
 		out.append(POR)
+	if colonie:
+		out.append_array([FRA, SHIPC, AME, MED])
 	return out
 
 
-## Regioni dove può stare il Re.
+## Regioni dove può stare il Re (delle nuove regioni delle Colonie, solo la Francia).
 func king_regions() -> Array:
+	if colonie:
+		var out := range(9)
+		out.append(FRA)
+		return out
 	return map_regions()
 
 
@@ -305,6 +350,8 @@ func taboo(r: int) -> bool:
 func room(r: int) -> int:
 	if limit6.has(r):
 		return maxi(0, 6 - total_in(r))
+	if colonie and r == FRA:
+		return maxi(0, 3 - total_in(r) - int(black.get(r, 0)))
 	return 999
 
 
@@ -348,6 +395,8 @@ func place_targets(s := -1) -> Array:
 	out.append(CAS)
 	if grandissimo and s >= 0 and ship_holder(s):
 		out.append(SHIP)
+	if colonie and king in D.COL_COASTAL:
+		out.append(SHIPC)
 	return out
 
 
@@ -413,9 +462,13 @@ func run() -> void:
 		log_msg("%s: il Grande parte da %s." % [pname(s), rname(grande[s])])
 	if grandissimo:
 		log_msg("I Caballeros neri del Grande Inquisitore sono in %s." % rname(inq_pos))
+	if colonie:
+		log_msg("Caballeros neri dell'Inquisitore in %s. Tavola limite (%d posti) in %s." % [" e ".join(black.keys().map(func(x): return rname(x))), limit_n, rname(limit_r)])
 	changed.emit()
 	if intrigo:
 		await _ik_setup()
+	if colonie:
+		await _col_setup()
 	for i in rounds.size():
 		if game_over:
 			return
@@ -425,6 +478,8 @@ func run() -> void:
 			await _ik_round()
 		else:
 			await _play_round()
+		if colonie:
+			await _col_round_end()
 		if cur_round in [3, 6, 9]:
 			await general_scoring()
 	_end_game()
@@ -446,6 +501,9 @@ func _play_round() -> void:
 			_shuffle(piles[4])
 		showing.append(piles[4].pop_back())
 		showing.append(D.QUEEN_CARD)
+	if colonie:
+		showing.append(D.COL_GI)
+		showing.append(_draw7())
 	for s in n:
 		played[s] = 0
 	stop_after = -1
@@ -514,6 +572,8 @@ func _turn(s: int) -> void:
 	log_msg("Turno di %s." % pname(s))
 	if grandissimo:
 		await _turn_start_grandissimo(s)
+	if colonie:
+		await _col_turn_start(s)
 	# 1. dalle province alla corte
 	var take: int = mini(nc, prov[s])
 	prov[s] -= take
@@ -530,6 +590,8 @@ func _turn(s: int) -> void:
 			log_msg("%s riporta %d Caballeros dal tabellone alla corte." % [pname(s), got])
 	changed.emit()
 	# 2. scelta della carta azione
+	if colonie:
+		await _col_remove_offer(s)
 	var avail := _available_cards()
 	var c = await decide(s, {"type": "action", "ctx": "action", "title": "Scegli una carta azione", "cards": avail})
 	var ci := int(c) if (c is int or c is float) else -1
@@ -577,6 +639,8 @@ func _finish_turn(s: int, ci: int) -> void:
 	if grandissimo:
 		await _symbols(s, ci)
 		await _turn_end_grandissimo(s)
+	if colonie:
+		await _col_turn_end(s)
 	changed.emit()
 
 
@@ -711,11 +775,18 @@ func _special(s: int, ci: int) -> void:
 			var vv := await pick(o, "veto", "%s sta per eseguire «%s». Usi il tuo Veto?" % [pname(s), cd["title"]], [{"label": "Lascia fare"}, {"label": "VETO!"}], {"card": ci, "actor": s})
 			if vv == 1:
 				veto.erase(o)
+				if colonie and _holds(o, "col_remove"):
+					_unhold(o, "col_remove")
+					_put_discs(o, 1, 1)
 				log_msg("%s pone il VETO: l'azione di %s è annullata!" % [pname(o), pname(s)])
 				fx.emit("veto", {"seat": o})
 				return
+	if colonie and not (key in ["col_remove", "col_doppel"]):
+		_place_discs(s, ci)
 	await _do_special(s, ci, key)
 	changed.emit()
+	if colonie:
+		await _col_doppel_offer(s, ci, key)
 
 
 const SCORING_KEYS := ["score_any", "score4", "score5", "score67", "score_most", "score_least", "score_first", "score_castillo",
@@ -1014,6 +1085,67 @@ func _do_special(s: int, ci: int, key: String) -> void:
 			log_msg("Ordine di sgombero: gli avversari riportano a corte i loro Caballeros del Castillo.")
 		"queen_jester":
 			await _take_character(s)
+		# ---------------- Il Grande Inquisitore e le Colonie
+		"col_gi":
+			_take_inquisitor(s)
+			for j in 2:
+				var srcs := []
+				for r in black:
+					if black[r] > 0 and not taboo(r):
+						srcs.append(r)
+				var a := await pick_region(s, "black_src", "Grande Inquisitore: sposti un suo Caballero nero? Da quale regione", srcs, true)
+				if a < 0:
+					break
+				var dests := free_regions()
+				dests.erase(a)
+				dests.erase(FRA)
+				var b := await pick_region(s, "black_dst", "Grande Inquisitore: dove porti il Caballero nero di %s?" % rname(a), dests, false, {"from": a})
+				_move_black(a, b)
+		"col_limit":
+			var allowed := []
+			for r in free_regions():
+				if r != FRA and r != limit_r:
+					allowed.append(r)
+			if taboo(limit_r):
+				return
+			var r := await pick_region(s, "col_limit", "Tavola limite: in quale regione la sposti?", allowed)
+			if r >= 0:
+				limit_r = r
+				for t in n:
+					lim_on[t] = 0
+				_fix_limit(s)
+				log_msg("%s sposta la tavola limite in %s." % [pname(s), rname(r)])
+		"col_remove":
+			_hold(s, key)
+			if intrigo:
+				veto[s] = 99
+				log_msg("%s tiene «Togli carta»: vale come un veto." % pname(s))
+			else:
+				log_msg("%s tiene «Togli carta» davanti a sé." % pname(s))
+		"col_doppel":
+			_hold(s, key)
+			log_msg("%s tiene «Il sosia» davanti a sé." % pname(s))
+		"col_transport":
+			await _moves(s, {"max": 3, "own": 3, "foe": 0, "title": "Trasporto: sposta fino a 3 tuoi Caballeros"})
+		"col_score_new":
+			for r in [FRA, SHIPC, AME, MED]:
+				score_region(r)
+		"col_score_gi":
+			_take_inquisitor(s)
+			var any := false
+			for r in black:
+				if black[r] > 0:
+					score_region(r)
+					any = true
+			if not any:
+				log_msg("I Caballeros neri non sono in nessuna regione.")
+		"col_score_later":
+			var allowed := map_regions()
+			allowed.append(CAS)
+			var r := await pick_region(s, "col_later", "Punteggio speciale: quale regione si valuta alla fine del prossimo round?", allowed)
+			if r >= 0:
+				later.append([r, cur_round + 1])
+				log_msg("%s mette la carta su %s: si valuterà alla fine del prossimo round." % [pname(s), rname(r)])
 		# ---------------- Intrigo & il Re
 		"ik_intrigue", "ik_intrigue_card":
 			await _ik_intrigue(s)
@@ -1215,6 +1347,8 @@ func _special_possible(s: int, key: String) -> bool:
 			return not double.has(s) and not region_cards_free().is_empty()
 		"free_choice":
 			return not free_choice.has(s)
+		"col_limit":
+			return limit_r >= 0 and not taboo(limit_r)
 	return true
 
 
@@ -1313,20 +1447,28 @@ func _apply_moves(s: int, r, spec: Dictionary) -> int:
 		else:
 			foe += 1
 		src = a
+		if spec.has("caps"):
+			var u: Dictionary = spec.get("_used", {})
+			u[a] = int(u.get(a, 0)) + 1
+			spec["_used"] = u
 		parts.append("%s %s→%s" % [players[p]["name"], rname(a), rname(b) if not (b == CAS and castillo_hidden) else "Castillo"])
 	if done > 0:
 		log_msg("%s muove: %s." % [pname(s), ", ".join(parts)])
-	else:
+	elif not spec.get("voyage", false):
 		log_msg("%s non muove nessun Caballero." % pname(s))
 	return done
 
 
 ## Regioni da cui si possono spostare Caballeros e dove si possono portare.
-func move_sources() -> Array:
+func move_sources(spec: Dictionary = {}) -> Array:
+	if spec.has("srcs"):
+		return spec["srcs"]
 	return free_regions()
 
 
-func move_dests() -> Array:
+func move_dests(spec: Dictionary = {}) -> Array:
+	if spec.has("dests"):
+		return spec["dests"]
 	var out := free_regions()
 	out.append(CAS)
 	return out
@@ -1334,7 +1476,7 @@ func move_dests() -> Array:
 
 ## Uno spostamento singolo è valido? (own/foe = già mossi, src = regione d'origine già usata)
 func move_ok(s: int, spec: Dictionary, a: int, b: int, p: int, own: int, foe: int, src: int) -> bool:
-	if a == b or not (a in move_sources()) or not (b in move_dests()):
+	if a == b or not (a in move_sources(spec)) or not (b in move_dests(spec)):
 		return false
 	if p < 0 or p >= n or cab[a][p] <= 0:
 		return false
@@ -1344,6 +1486,8 @@ func move_ok(s: int, spec: Dictionary, a: int, b: int, p: int, own: int, foe: in
 	if spec.has("to") and b != int(spec["to"]):
 		return false
 	if spec.has("pair") and not (a in spec["pair"] and b in spec["pair"]):
+		return false
+	if spec.has("caps") and spec["caps"].has(a) and int(spec.get("_used", {}).get(a, 0)) >= int(spec["caps"][a]):
 		return false
 	if room(b) <= 0:
 		return false
@@ -1609,6 +1753,8 @@ func _ik_setup() -> void:
 		pick13.sort()
 		hand[s] = pick13
 	log_msg("Tutti hanno scelto le loro 13 carte.")
+	if colonie:
+		return
 	var picks := {}
 	for s in n:
 		picks[s] = await pick_region(s, "ik_start", "Disco segreto: in quale regione metti un Caballero?", range(9), false, {"secret": true})
@@ -1639,6 +1785,10 @@ func _ik_round() -> void:
 	king_holder = -1
 	intrigue_holder = -1
 	turn_no = 0
+	taken = {}
+	showing = []
+	if colonie:
+		showing = [D.COL_GI, _draw7()]
 	phase = "power"
 	changed.emit()
 	var seq := []
@@ -1718,6 +1868,8 @@ func _ik_turn(s: int) -> void:
 	var ci: int = ik_played[s]
 	var cd := card(ci)
 	log_msg("Turno di %s." % pname(s))
+	if colonie:
+		await _col_turn_start(s)
 	# il ponte: prima del turno il proprietario sposta liberamente i suoi Caballeros
 	if not bridge.is_empty() and bridge["owner"] == s:
 		var a: int = bridge["a"]
@@ -1746,8 +1898,22 @@ func _ik_turn(s: int) -> void:
 		if n <= 3:
 			var o := await pick(s, "ik_which", "Quale azione esegui?", [{"label": card(special_card)["title"]}, {"label": cd["title"] + " (la tua carta)"}], {"card": special_card, "card2": ci})
 			act = special_card if o == 0 else ci
-	var akey: String = card(act)["key"]
 	var k: int = cab_card[s]
+	# Il Re e le Colonie: al posto della propria azione si può prendere la carta dell'Inquisitore o della 7ª pila
+	if colonie:
+		var avail := _available_cards()
+		if not avail.is_empty():
+			var opts := [{"label": "%s (la tua azione)" % card(act)["title"], "c": act}]
+			for c2 in avail:
+				opts.append({"label": "%s (%s)" % [card(c2)["title"], "6ª pila" if c2 == D.COL_GI else "7ª pila"], "c": c2})
+			var o := await pick(s, "col_choice", "Quale azione esegui?", opts, {"card": act, "cards": avail})
+			var chosen: int = opts[o]["c"]
+			if chosen != act:
+				act = chosen
+				taken[chosen] = s
+				k = D.card_n(chosen)
+				log_msg("%s prende «%s»." % [pname(s), card(chosen)["title"]])
+	var akey: String = card(act)["key"]
 	if akey == "fiesta":
 		k = 5
 	place_any = akey == "anywhere"
@@ -1762,6 +1928,8 @@ func _ik_turn(s: int) -> void:
 		await _place(s, k)
 		await _special(s, act)
 	place_any = false
+	if colonie:
+		await _col_turn_end(s)
 	changed.emit()
 
 
@@ -1798,12 +1966,345 @@ func _pre_scoring() -> void:
 			reserve.erase(s)
 
 
+# ================================================================ Il Grande Inquisitore e le Colonie
+
+## Preparazione: ognuno sceglie col disco dove mettere 2 Caballeros della corte.
+func _col_setup() -> void:
+	var picks := {}
+	for s in n:
+		picks[s] = await pick_region(s, "col_start", "Disco segreto: in quale regione metti 2 Caballeros?", range(9), false, {"secret": true})
+	var txt := []
+	for s in picks:
+		var r: int = picks[s]
+		txt.append("%s → %s" % [pname(s), rname(r)])
+		if taboo(r):
+			continue
+		court[s] -= 2
+		cab[r][s] += 2
+		flow(s, "court", r, 2)
+	log_msg("Dischi: " + ", ".join(txt) + ".")
+	fx.emit("discs", {"picks": picks})
+	changed.emit()
+
+
+## Carta della 7ª pila del round (si rimescola quando finisce, senza le carte tenute davanti).
+func _draw7() -> int:
+	if piles[5].is_empty():
+		var used := []
+		for s in held:
+			used.append_array(held[s])
+		for ci in D.pile_cards(9):
+			if not (card(ci)["key"] in used and card(ci)["key"] in ["col_remove", "col_doppel"]):
+				piles[5].append(ci)
+		_shuffle(piles[5])
+	return piles[5].pop_back()
+
+
+func _hold(s: int, key: String) -> void:
+	if not held.has(s):
+		held[s] = []
+	held[s].append(key)
+
+
+func _holds(s: int, key: String) -> bool:
+	return held.has(s) and key in held[s]
+
+
+func _unhold(s: int, key: String) -> void:
+	if held.has(s):
+		held[s].erase(key)
+		if held[s].is_empty():
+			held.erase(s)
+
+
+## Dischi oro (America) e merci (Mediterraneo) di una carta della 7ª pila.
+func _place_discs(s: int, ci: int) -> void:
+	_put_discs(s, int(card(ci).get("gold", 0)), int(card(ci).get("wares", 0)))
+
+
+func _put_discs(s: int, g: int, w: int) -> void:
+	g = mini(g, supply["gold"])
+	w = mini(w, supply["wares"])
+	if g + w <= 0:
+		return
+	supply["gold"] -= g
+	supply["wares"] -= w
+	discs[AME]["gold"] += g
+	discs[MED]["wares"] += w
+	var parts := []
+	if g > 0:
+		parts.append("%d oro in America" % g)
+	if w > 0:
+		parts.append("%d merci nel Mediterraneo" % w)
+	log_msg("Nuovi dischi: %s." % ", ".join(parts))
+	_claim(s)
+
+
+func carried(s: int, r: int) -> int:
+	if s < 0 or s >= carry.size() or not carry[s].has(r):
+		return 0
+	var c: Dictionary = carry[s][r]
+	return int(c.get("gold", 0)) + int(c.get("wares", 0))
+
+
+## I Caballeros liberi di s in America e nel Mediterraneo si mettono sui dischi liberi.
+func _claim(s: int) -> void:
+	for r in [AME, MED]:
+		var free: int = cab[r][s] - carried(s, r) - (1 if r == AME and viceroy == s else 0)
+		for kind in ["gold", "wares"]:
+			while free > 0 and discs[r][kind] > 0:
+				discs[r][kind] -= 1
+				free -= 1
+				if not carry[s].has(r):
+					carry[s][r] = {"gold": 0, "wares": 0}
+				carry[s][r][kind] += 1
+				log_msg("%s prende %s in %s." % [pname(s), "un disco d'oro" if kind == "gold" else "un disco di merci", rname(r)])
+
+
+## Movimento di Caballeros nelle Colonie: dischi portati, posti speciali, tavola limite.
+func _col_flow(s: int, from, to, q: int) -> void:
+	var fr: int = from if from is int else -1
+	var tr: int = to if to is int else -1
+	# dischi portati: verso la Spagna o le colonie viaggiano per primi, verso Castillo/corte/province per ultimi
+	var c := carried(s, fr)
+	if c > 0:
+		var before: int = cab[fr][s] + q
+		var k := 0
+		var going_home: bool = tr >= 0 and tr != CAS and tr != JAIL
+		if going_home:
+			k = mini(q, c)
+		else:
+			k = maxi(0, q - (before - c))
+		for i in k:
+			var kind := "gold" if carry[s][fr]["gold"] > 0 else "wares"
+			carry[s][fr][kind] -= 1
+			if going_home and tr < 9:
+				var pts := 6 if kind == "gold" else 4
+				supply[kind] += 1
+				log_msg("%s porta %s in Spagna: +%d punti." % [pname(s), "l'oro" if kind == "gold" else "le merci", pts])
+				score[s] += pts
+				fx.emit("score", {"r": tr, "pts": {s: pts}})
+			elif going_home:
+				if not carry[s].has(tr):
+					carry[s][tr] = {"gold": 0, "wares": 0}
+				carry[s][tr][kind] += 1
+			else:
+				supply[kind] += 1
+				log_msg("%s perde %s." % [pname(s), "un disco d'oro" if kind == "gold" else "un disco di merci"])
+		if carried(s, fr) == 0:
+			carry[s].erase(fr)
+	# posti speciali che si liberano
+	if fr == SHIPC and captain == s and cab[SHIPC][s] == 0:
+		captain = -1
+	if fr == AME and viceroy == s and cab[AME][s] == 0:
+		viceroy = -1
+	if fr == FRA:
+		var left := q
+		for i in range(2, -1, -1):
+			if left > 0 and france_slots[i] == s:
+				france_slots[i] = -1
+				left -= 1
+	# posti speciali che si occupano (mai con un Caballero che porta un disco)
+	var free_in: int = (cab[tr][s] - carried(s, tr)) if tr >= 0 else 0
+	if tr == FRA:
+		var add := q
+		for i in 3:
+			if add > 0 and france_slots[i] < 0:
+				france_slots[i] = s
+				add -= 1
+	if tr == SHIPC and captain < 0 and free_in > 0:
+		captain = s
+		log_msg("%s è il Capitano della nave." % pname(s))
+	if tr == AME and viceroy < 0 and free_in > 0:
+		viceroy = s
+		log_msg("%s è il Viceré d'America." % pname(s))
+	if tr == AME or tr == MED:
+		_claim(s)
+	if limit_r >= 0 and (fr == limit_r or tr == limit_r):
+		_fix_limit(s)
+
+
+## Caballeros che contano sulla tavola limite: chi c'è già resta, i posti liberi a partire da chi si muove.
+func _limit_counts(first := -1) -> Array:
+	var out := []
+	var used := 0
+	for t in n:
+		var k: int = mini(lim_on[t] if t < lim_on.size() else 0, cab[limit_r][t])
+		out.append(k)
+		used += k
+	var start: int = first if first >= 0 else maxi(acting, 0)
+	for j in n:
+		var t := (start + j) % n
+		while used < limit_n and out[t] < cab[limit_r][t]:
+			out[t] += 1
+			used += 1
+	return out
+
+
+func _fix_limit(first := -1) -> void:
+	if limit_r >= 0:
+		lim_on = _limit_counts(first)
+
+
+func _take_inquisitor(s: int) -> void:
+	if inq_owner >= 0 and inq_owner != s:
+		log_msg("%s prende il Grande Inquisitore a %s." % [pname(s), pname(inq_owner)])
+	elif inq_owner != s:
+		log_msg("%s prende il Grande Inquisitore." % pname(s))
+	inq_owner = s
+
+
+func _move_black(a: int, b: int) -> void:
+	if a < 0 or b < 0 or int(black.get(a, 0)) <= 0:
+		return
+	black[a] -= 1
+	if black[a] == 0:
+		black.erase(a)
+	black[b] = int(black.get(b, 0)) + 1
+	log_msg("Un Caballero nero dell'Inquisitore passa da %s a %s." % [rname(a), rname(b)])
+	changed.emit()
+
+
+## Inizio turno: dischi da prendere, sbarco dalla nave e imbarco da America e Mediterraneo.
+func _col_turn_start(s: int) -> void:
+	_claim(s)
+	var am0: int = cab[AME][s]
+	var med0: int = cab[MED][s]
+	var ship0: int = cab[SHIPC][s]
+	if ship0 > 0:
+		var dests := [AME, FRA, MED]
+		for r in D.COL_COASTAL:
+			if not taboo(r) and not (r in dests):
+				dests.append(r)
+		var ok := []
+		for r in dests:
+			if not taboo(r) and room(r) > 0:
+				ok.append(r)
+		await _moves(s, {"max": ship0, "own": ship0, "foe": 0, "srcs": [SHIPC], "dests": ok, "voyage": true,
+			"title": "Nave: sbarchi i tuoi Caballeros? (America, Francia, Mediterraneo o costa spagnola)"})
+	if am0 + med0 > 0:
+		var srcs := []
+		if am0 > 0:
+			srcs.append(AME)
+		if med0 > 0:
+			srcs.append(MED)
+		await _moves(s, {"max": am0 + med0, "own": am0 + med0, "foe": 0, "srcs": srcs, "dests": [SHIPC], "caps": {AME: am0, MED: med0}, "voyage": true,
+			"title": "Nave: imbarchi Caballeros dall'America o dal Mediterraneo?"})
+	_claim(s)
+	changed.emit()
+
+
+## Fine turno: il Grande Inquisitore porta un Caballero in più.
+func _col_turn_end(s: int) -> void:
+	if inq_owner != s:
+		return
+	var opts := [{"label": "Niente"}]
+	if prov[s] > 0:
+		opts.append({"label": "Un Caballero dalle province alla corte", "k": "court"})
+	if court[s] > 0:
+		opts.append({"label": "Un Caballero dalla corte a una regione vicina al Re", "k": "place"})
+	if opts.size() == 1:
+		return
+	var i := await pick(s, "inq_bonus", "Grande Inquisitore: un Caballero in più?", opts)
+	match str(opts[i].get("k", "")):
+		"court":
+			prov[s] -= 1
+			court[s] += 1
+			flow(s, "prov", "court", 1)
+			log_msg("L'Inquisitore porta un Caballero di %s a corte." % pname(s))
+		"place":
+			await _place(s, 1, [], "inq_place")
+
+
+## «Togli carta»: chi la tiene può togliere una carta azione prima che un altro scelga.
+func _col_remove_offer(s: int) -> void:
+	if intrigo:
+		return
+	for k in range(1, n):
+		var o := (s + k) % n
+		if not _holds(o, "col_remove"):
+			continue
+		var avail := _available_cards()
+		if avail.size() <= 1:
+			return
+		var opts := [{"label": "Non ora", "c": -1}]
+		for c in avail:
+			opts.append({"label": "Togli «%s»" % card(c)["title"], "c": c})
+		var i := await pick(o, "use_remove", "Tocca a %s scegliere la carta azione: usi «Togli carta»?" % pname(s), opts, {"cards": avail, "actor": s})
+		var c2: int = opts[i]["c"]
+		if c2 >= 0:
+			_unhold(o, "col_remove")
+			taken[c2] = -1
+			log_msg("%s toglie «%s» dalle carte del round." % [pname(o), card(c2)["title"]])
+			_put_discs(o, 1, 1)
+			changed.emit()
+			return
+
+
+## «Il sosia»: dopo l'azione speciale di un altro giocatore, chi lo tiene può eseguirla anche lui.
+func _col_doppel_offer(s: int, ci: int, key: String) -> void:
+	if key in ["col_remove", "col_doppel", "veto", "ik_veto"]:
+		return
+	for k in range(1, n):
+		var o := (s + k) % n
+		if not _holds(o, "col_doppel"):
+			continue
+		if await yesno(o, "use_doppel", "Il sosia: esegui anche tu «%s»?" % card(ci)["title"], {"card": ci, "actor": s}, "No", "Sì, la eseguo"):
+			_unhold(o, "col_doppel")
+			log_msg("%s usa Il sosia: esegue anche lui «%s»." % [pname(o), card(ci)["title"]])
+			_put_discs(o, 1, 1)
+			var saved_acting := acting
+			acting = o
+			await _do_special(o, ci, key)
+			acting = saved_acting
+			changed.emit()
+			return
+
+
+## Fine round: «Punteggio speciale» rimandato.
+func _col_round_end() -> void:
+	for it in later.duplicate():
+		if int(it[1]) <= cur_round:
+			later.erase(it)
+			log_msg("Punteggio speciale rimandato: si valuta %s." % rname(int(it[0])))
+			score_region(int(it[0]))
+
+
 # ================================================================ valutazioni
 
 ## Punti di una regione se fosse valutata adesso: {posto: punti}.
 func region_points(r: int, first_only := false, cb: Array = []) -> Dictionary:
 	var counts: Array = cb[r] if not cb.is_empty() else cab[r]
-	return points_for(counts, vals(r), first_only, [r])
+	if not colonie:
+		return points_for(counts, vals(r), first_only, [r])
+	if r == SHIPC:
+		# sulla nave prende punti solo il Capitano
+		var cap := captain
+		if cap < 0:
+			for t in n:
+				if counts[t] > 0:
+					cap = t
+					break
+		return {cap: 3} if cap >= 0 and not first_only and counts[cap] > 0 else {}
+	counts = counts.duplicate()
+	if r == limit_r:
+		counts = _limit_counts()
+	if r == AME and viceroy >= 0 and counts[viceroy] > 0:
+		counts[viceroy] -= 1
+	if int(black.get(r, 0)) > 0:
+		if inq_owner >= 0:
+			counts[inq_owner] += black[r]
+		else:
+			counts.append(black[r])      # un giocatore invisibile
+	var pts := points_for(counts, vals(r), first_only, [r])
+	if r == AME and viceroy >= 0 and not first_only:
+		pts[viceroy] = pts.get(viceroy, 0) + 5
+	if r == FRA:
+		for i in 2:
+			var o: int = france_slots[i]
+			if o >= 0 and (not first_only or pts.has(o)):
+				pts[o] = pts.get(o, 0) + (2 if i == 0 else 1)
+	return pts
 
 
 ## Punti per un insieme di Caballeros (counts per posto) con i valori v. bonus_regs: regioni che
@@ -1811,7 +2312,7 @@ func region_points(r: int, first_only := false, cb: Array = []) -> Dictionary:
 func points_for(counts: Array, v: Array, first_only := false, bonus_regs: Array = []) -> Dictionary:
 	var np := 1 if first_only else npos()
 	var lst := []
-	for s in n:
+	for s in counts.size():
 		if counts[s] > 0:
 			lst.append(s)
 	lst.sort_custom(func(a, b): return counts[a] > counts[b])
@@ -1835,11 +2336,11 @@ func points_for(counts: Array, v: Array, first_only := false, bonus_regs: Array 
 			pts = v[p + 1] if p + 1 < np else 0
 			p += 2
 		for t in grp:
-			if pts > 0:
+			if pts > 0 and t < n:
 				out[t] = pts
 		i = j
 	# bonus del Re e del Grande per chi ha la maggioranza assoluta
-	if not bonus_regs.is_empty() and lst.size() > 0 and (lst.size() == 1 or counts[lst[0]] > counts[lst[1]]):
+	if not bonus_regs.is_empty() and lst.size() > 0 and lst[0] < n and (lst.size() == 1 or counts[lst[0]] > counts[lst[1]]):
 		var lead: int = lst[0]
 		var bonus := 0
 		if king in bonus_regs and king != CAS:
@@ -2008,4 +2509,5 @@ func _end_game() -> void:
 
 ## Impronta dello stato (per verificare che due dispositivi online abbiano la stessa partita).
 func fingerprint() -> String:
-	return "%s|%s|%s|%s|%s|%d|%s|%s|%d|%d|%s" % [str(score), str(cab), str(court), str(prov), str(grande), king, str(mobile), str(ships), queen, jester, str(hand)]
+	return "%s|%s|%s|%s|%s|%d|%s|%s|%d|%d|%s|%s|%s|%s|%d|%d|%d" % [str(score), str(cab), str(court), str(prov), str(grande), king, str(mobile), str(ships), queen, jester, str(hand),
+		str(black), str(carry), str(france_slots), captain, viceroy, limit_r]

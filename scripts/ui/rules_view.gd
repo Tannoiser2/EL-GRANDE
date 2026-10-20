@@ -53,7 +53,7 @@ func _ready() -> void:
 	right.bbcode_enabled = true
 	right.custom_minimum_size = Vector2(820, 880)
 	cols.add_child(right)
-	var pages := [["Gioco base", _rules_text(), _cards_text()], ["Grandissimo", _grandissimo_text(), _grandissimo_cards()], ["Intrigo & il Re", _intrigo_text(), _intrigo_cards()]]
+	var pages := [["Gioco base", _rules_text(), _cards_text()], ["Grandissimo", _grandissimo_text(), _grandissimo_cards()], ["Intrigo & il Re", _intrigo_text(), _intrigo_cards()], ["Le Colonie", _colonie_text(), _colonie_cards()]]
 	var btns := []
 	for i in pages.size():
 		var b := UI.button(pages[i][0], 220, 44, 21)
@@ -176,6 +176,41 @@ func _intrigo_text() -> String:
 	s += "2 giocatori: 4 e 2 · 3 giocatori: 5, 3, 1 · 4 giocatori: 5, 4, 2, 1 · 5 giocatori: 5, 4, 3, 2, 1.\n\n"
 	s += _h("Interpretazioni")
 	s += "[color=#b9a988][i]Il ponte unisce due regioni confinanti; c'è un solo ponte in gioco e il Caballero di guardia torna a corte quando viene tolto. Il Caballero della Riserva e le carte «Prendi 6!» si tolgono con la carta 125. La Protezione reale dura fino alla fine del round.[/i][/color]\n"
+	return s
+
+
+func _colonie_text() -> String:
+	var s := _h("Il Grande Inquisitore e le Colonie")
+	s += "Ognuno ha 36 Caballeros: 2 nella regione del Grande, 9 a corte, il resto nelle province. Prima del primo round, col disco segreto, ognuno porta 2 Caballeros della corte in una regione (se sceglie quella del Re restano a corte). Due regioni pescate a caso ricevono 2 Caballeros neri ciascuna, una terza la tavola limite. In America c'è 1 disco d'oro, nel Mediterraneo 2 di merci.\n\n"
+	s += _h("Le nuove regioni")
+	s += "Si valutano dopo Valencia, in quest'ordine: [b]Francia[/b], [b]nave[/b], [b]America[/b], [b]Mediterraneo[/b]. Il disco segreto non le può scegliere; il Re può andare solo in Francia.\n"
+	s += "• [b]Francia[/b] (3 / 1 / –): al massimo 3 Caballeros. Il primo arrivato è l'Ambasciatore (+2), il secondo l'Inviato (+1). Ci si piazza quando il Re è in Aragona o Catalogna.\n"
+	s += "• [b]Nave[/b]: prende 3 punti solo il Capitano (il primo Caballero salito). Si sale dalla corte quando il Re è in una regione costiera (Francia, Catalogna, Valencia, Granada, Siviglia, Galizia, Paesi Baschi). All'inizio del proprio turno si sbarca in America, Francia, Mediterraneo o su una costa spagnola, e si possono imbarcare i Caballeros che erano già in America o nel Mediterraneo.\n"
+	s += "• [b]America[/b] (4 / – / –): il Viceré (il primo arrivato) prende 5 punti ma non conta per la maggioranza.\n"
+	s += "• [b]Mediterraneo[/b] (4 / 2 / 1).\n\n"
+	s += _h("Oro e merci")
+	s += "Le carte della 7ª pila mettono dischi d'oro in America e di merci nel Mediterraneo. Un Caballero libero che si trova lì prende un disco; quando arriva in Spagna il disco vale subito 6 punti (oro) o 4 (merci). Va perso se il Caballero torna a corte, nelle province o nel Castillo.\n\n"
+	s += _h("Il Grande Inquisitore")
+	s += "La sua carta (6ª pila) è sempre disponibile come quella del Re. Chi la prende tiene l'Inquisitore finché un altro non glielo toglie: i Caballeros neri contano come suoi e a ogni turno porta un Caballero in più dalle province alla corte o dalla corte vicino al Re. Se l'Inquisitore non è di nessuno, i Caballeros neri sono un giocatore invisibile.\n\n"
+	s += _h("Tavola limite")
+	s += "Nella regione con la tavola contano al massimo 6 Caballeros (con 2 o 3 giocatori) o 10 (con 4 o 5): chi c'è già resta sulla tavola, i posti liberi vanno a chi arriva.\n\n"
+	s += _h("Il Re e le Colonie")
+	s += "Con le carte di Intrigo & il Re: a ogni round sono disponibili la carta dell'Inquisitore e una della 7ª pila; al proprio turno si può prendere una delle due al posto della propria azione, e allora è quella carta a dire quanti Caballeros si piazzano. «Togli carta» vale come un veto.\n\n"
+	s += _h("Interpretazioni")
+	s += "[color=#b9a988][i]I posti di Ambasciatore, Capitano e Viceré si occupano da soli con il primo Caballero che arriva (mai con uno che porta un disco). Chi parte da una regione porta per primi i Caballeros con i dischi se va verso la Spagna o la nave, per ultimi se va a corte o nel Castillo. «Togli carta» si usa prima che un altro scelga la sua carta azione.[/i][/color]\n"
+	return s
+
+
+func _colonie_cards() -> String:
+	var s := _h("Le carte delle Colonie")
+	for ci in range(D.COL_GI, D.CARDS.size()):
+		var cd: Dictionary = D.CARDS[ci]
+		var disc := []
+		if cd.get("gold", 0) > 0:
+			disc.append("%d oro" % cd["gold"])
+		if cd.get("wares", 0) > 0:
+			disc.append("%d merci" % cd["wares"])
+		s += "• [b]%s[/b] [color=#b9a988](%d Caballeros%s)[/color]: %s\n" % [cd["title"], cd["n"], (", " + " e ".join(disc)) if not disc.is_empty() else "", cd["text"]]
 	return s
 
 

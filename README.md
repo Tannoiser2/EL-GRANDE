@@ -1,7 +1,15 @@
 # El Grande — versione digitale
 
 Adattamento digitale non ufficiale, per uso personale, di **El Grande** di Wolfgang Kramer e Richard Ulrich
-(Hans im Glück / Rio Grande Games), gioco base. Fatto in Godot 4.7, tutto in italiano.
+(Hans im Glück / Rio Grande Games), con le espansioni del Decennial. Fatto in Godot 4.7, tutto in italiano.
+
+## Espansioni (si scelgono nel menu)
+- **Grandissimo**: Portogallo, nave, prigione, Regina e Giullare, Grande Inquisitore, 6ª e 7ª pila (carte italiane).
+- **Intrigo & il Re**: 31 carte azione/potere per giocatore (se ne scelgono 13), carta del Re, dell'Intrigo e carte
+  Caballero. Le carte sono le scansioni blu ricolorate per gli altri giocatori, tradotte in italiano.
+- **Il Grande Inquisitore e le Colonie**: Francia, nave, America e Mediterraneo con oro e merci, Ambasciatore,
+  Capitano e Viceré, tavola limite, Grande Inquisitore con 4 Caballeros neri, 11 carte della 7ª pila (tradotte).
+- **Il Re e le Colonie**: le carte di Intrigo & il Re insieme alle Colonie.
 
 **Gioca:** https://tannoiser2.github.io/EL-GRANDE/
 

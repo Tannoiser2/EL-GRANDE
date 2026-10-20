@@ -177,7 +177,9 @@ func _build_side() -> void:
 	rows_box.position = Vector2(RX, 80)
 	rows_box.add_theme_constant_override("separation", 6)
 	add_child(rows_box)
-	var ncards := 7 if (engine.grandissimo or engine.intrigo) else 5
+	var ncards := 7 if (engine.grandissimo or engine.intrigo or engine.colonie) else 5
+	if engine.intrigo:
+		ncards = 2 + D.IK_CAB[clampi(engine.n, 2, 5)].size() + (2 if engine.colonie else 0)
 	CARD_W = minf(126.0, floorf((RW - 6 * (ncards - 1)) / ncards))
 	CARD_H = roundf(CARD_W * (1.617 if engine.intrigo else 1.405))
 	var cards_y := 1072.0 - CARD_H
@@ -350,6 +352,9 @@ func _refresh_ik_cards() -> void:
 			if engine.cab_card[s] == cabs[i] and engine.phase != "power":
 				who = s
 		items.append([D.IK_KING, "res://assets/intrigo/c%d.jpg" % cabs[i], who])
+	if engine.colonie:
+		for c2 in engine.showing:
+			items.append([c2, "", engine.taken.get(c2, -1)])
 	for it in items:
 		var cv := CardView.new()
 		cv.tex_override = it[1]
@@ -475,8 +480,21 @@ func _move_ok(a: int, b: int, p: int) -> bool:
 	var oc := _move_counts()
 	if moves.size() >= int(spec["max"]):
 		return false
-	if a == b or not (a in engine.move_sources()) or not (b in engine.move_dests()):
+	if a == b or not (a in engine.move_sources(spec)) or not (b in engine.move_dests(spec)):
 		return false
+	if spec.has("caps") and spec["caps"].has(a):
+		var used := 0
+		for m in moves:
+			if m[0] == a:
+				used += 1
+		if used >= int(spec["caps"][a]):
+			return false
+	if engine.colonie and b == 11:
+		var totf := 0
+		for t in engine.n:
+			totf += counts[b][t]
+		if totf >= 3:
+			return false
 	if counts[a][p] <= 0:
 		return false
 	var fr := int(spec.get("from", -1))
@@ -504,7 +522,7 @@ func _move_ok(a: int, b: int, p: int) -> bool:
 func _movable_colors(a: int) -> Array:
 	var out := []
 	for p in engine.n:
-		for b in 10:
+		for b in 17:
 			if _move_ok(a, b, p):
 				out.append(p)
 				break
@@ -513,7 +531,7 @@ func _movable_colors(a: int) -> Array:
 
 func _move_sources() -> Array:
 	var out := []
-	for a in 9:
+	for a in 17:
 		if not _movable_colors(a).is_empty():
 			out.append(a)
 	return out
@@ -521,7 +539,7 @@ func _move_sources() -> Array:
 
 func _move_dests() -> Array:
 	var out := []
-	for b in 10:
+	for b in 17:
 		if _move_ok(move_src, b, move_col):
 			out.append(b)
 	return out
@@ -548,8 +566,10 @@ func _on_region_hover(r: int) -> void:
 		lines.append("Regione del Re: nessuno può entrare o uscire.")
 	elif mapr:
 		lines.append("Confina con: " + ", ".join(engine.adj(r).map(func(x): return D.region_name(x))))
-	if r == engine.inq_pos:
+	if r == engine.inq_pos and engine.grandissimo:
 		lines.append("Qui ci sono i 2 Caballeros neri dell'Inquisitore (non contano).")
+	if engine.colonie:
+		lines.append_array(_colonie_info(r))
 	for s in engine.n:
 		var q: int = counts[r][s]
 		if q > 0:
@@ -562,6 +582,42 @@ func _on_region_hover(r: int) -> void:
 				pp.append("%s %d" % [engine.pname(s), pts[s]])
 			lines.append("Se valutata ora: " + ", ".join(pp))
 	board.tooltip_text = "\n".join(lines)
+
+
+## Righe del suggerimento per le regioni delle Colonie.
+func _colonie_info(r: int) -> Array:
+	var out := []
+	match r:
+		11:
+			out.append("Al massimo 3 Caballeros. Ambasciatore +2, Inviato +1.")
+			var nm := ["Ambasciatore", "Inviato"]
+			for i in 2:
+				if engine.france_slots[i] >= 0:
+					out.append("%s: %s" % [nm[i], engine.pname(engine.france_slots[i])])
+			out.append("Ci si arriva quando il Re è in Aragona o Catalogna, o con la nave.")
+		12:
+			out.append("Prende punti solo il Capitano (+3)%s." % ((": " + engine.pname(engine.captain)) if engine.captain >= 0 else ""))
+			out.append("Si sale dalla corte quando il Re è in una regione costiera.")
+			out.append("A inizio turno si sbarca in America, Francia, Mediterraneo o sulla costa.")
+		13:
+			out.append("Il Viceré (+5) non conta per la maggioranza%s." % ((": " + engine.pname(engine.viceroy)) if engine.viceroy >= 0 else ""))
+			out.append("Oro libero: %d (vale 6 punti portato in Spagna)." % engine.discs[13]["gold"])
+		14:
+			out.append("Merci libere: %d (valgono 4 punti portate in Spagna)." % engine.discs[14]["wares"])
+	if int(engine.black.get(r, 0)) > 0:
+		out.append("Caballeros neri dell'Inquisitore: %d%s." % [engine.black[r], (" (contano per %s)" % engine.pname(engine.inq_owner)) if engine.inq_owner >= 0 else " (giocatore invisibile)"])
+	if r == engine.limit_r:
+		var lc: Array = engine._limit_counts()
+		var parts := []
+		for s in engine.n:
+			if lc[s] > 0:
+				parts.append("%s %d" % [engine.pname(s), lc[s]])
+		out.append("Tavola limite: contano al massimo %d Caballeros (%s)." % [engine.limit_n, ", ".join(parts) if not parts.is_empty() else "vuota"])
+	for s in engine.n:
+		if engine.carry[s].has(r):
+			var c: Dictionary = engine.carry[s][r]
+			out.append("%s porta %d oro e %d merci." % [engine.pname(s), c["gold"], c["wares"]])
+	return out
 
 
 func _on_region_click(r: int, button: int) -> void:
@@ -622,7 +678,7 @@ func _on_region_click(r: int, button: int) -> void:
 
 
 func _move_ok_any(a: int, p: int) -> bool:
-	for b in 10:
+	for b in 17:
 		if _move_ok(a, b, p):
 			return true
 	return false

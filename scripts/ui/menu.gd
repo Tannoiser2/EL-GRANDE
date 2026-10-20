@@ -16,6 +16,8 @@ const VARIANTS := [
 	["base", "Gioco base", "Le regole della scatola di El Grande."],
 	["grandissimo", "Grandissimo", "Portogallo, nave, prigione, Regina e Giullare, Grande Inquisitore e 19 nuove carte azione."],
 	["intrigo", "Intrigo & il Re", "Ognuno sceglie 13 delle sue 31 carte azione: la più alta prende la carta del Re, la più bassa l'Intrigo."],
+	["colonie", "Inquisitore e Colonie", "Francia, nave, America e Mediterraneo con oro e merci, tavola limite, Grande Inquisitore e 7ª pila."],
+	["re_colonie", "Il Re e le Colonie", "Le carte di Intrigo & il Re insieme alle Colonie, al Grande Inquisitore e alla 7ª pila."],
 ]
 var msg: Label
 
@@ -137,22 +139,26 @@ func _store() -> void:
 func _variant_box() -> void:
 	var box := PanelContainer.new()
 	box.add_theme_stylebox_override("panel", UI.panel_style(Color("#140b06dd"), UI.GOLD_D, 1, 8))
-	box.position = Vector2(1262, 650)
+	box.position = Vector2(1262, 632)
 	box.custom_minimum_size = Vector2(596, 0)
 	add_child(box)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 6)
 	box.add_child(vb)
 	vb.add_child(UI.label("Espansione", 28, Color.WHITE, UI.font_sc_b))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	vb.add_child(grid)
 	var btns := []
 	for v in VARIANTS:
 		var b := Button.new()
 		b.text = v[1]
-		b.custom_minimum_size = Vector2(570, 38)
+		b.custom_minimum_size = Vector2(282, 44)
 		b.tooltip_text = v[2]
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.add_theme_font_size_override("font_size", 22)
-		vb.add_child(b)
+		b.add_theme_font_size_override("font_size", 20)
+		grid.add_child(b)
 		btns.append(b)
 	var paint := func():
 		for i in VARIANTS.size():

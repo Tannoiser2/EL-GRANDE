@@ -1,0 +1,50 @@
+{
+"x_conspiracy.png": [
+"Cospirazione",
+"Metti nel Castillo i Grandi degli altri giocatori."
+],
+"x_doppel.png": [
+"Il sosia",
+"Tieni questa carta davanti a te: ti permette di eseguire un'azione speciale usata da un altro giocatore, dopo che l'ha completata. Quando la usi metti i due dischi, poi scarta la carta."
+],
+"x_free2.png": [
+"Spostamento",
+"Tieni questa carta davanti a te fino alla prossima valutazione generale. Svuotato il Castillo, ma prima di valutare le altre regioni, sposta due tuoi Caballeros. Poi scarta la carta."
+],
+"x_gi.png": [
+"Grande Inquisitore",
+"Prendi il Grande Inquisitore nella tua corte e sposta fino a 2 dei suoi Caballeros dove vuoi. Finché è da te, a ogni tuo turno porti 1 Caballero in più dalle province alla corte o in una regione vicina al Re."
+],
+"x_limit1.png": [
+"Tavola limite",
+"Sposta la tavola limite."
+],
+"x_limit2.png": [
+"Tavola limite",
+"Sposta la tavola limite."
+],
+"x_limit3.png": [
+"Tavola limite",
+"Sposta la tavola limite."
+],
+"x_remove.png": [
+"Togli carta",
+"Tieni questa carta davanti a te: ti permette di togliere una carta azione scoperta. Quando la usi metti i due dischi, poi scarta la carta."
+],
+"x_score_gi.png": [
+"Punteggio speciale",
+"Prendi il Grande Inquisitore nella tua corte e valuta le regioni dove si trovano i suoi Caballeros."
+],
+"x_score_later.png": [
+"Punteggio speciale",
+"Metti questa carta su una regione a tua scelta: alla fine del prossimo round quella regione viene valutata."
+],
+"x_score_new.png": [
+"Punteggio speciale",
+"Valuta tutte le nuove regioni: Francia, la nave, l'America e il Mediterraneo."
+],
+"x_transport.png": [
+"Trasporto",
+"Sposta 3 tuoi Caballeros: puoi metterli sull'oro o sulle merci appena posati."
+]
+}

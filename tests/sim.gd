@@ -79,6 +79,6 @@ func _check(eng: EGEngine) -> void:
 			for g in eng.gifts[rcv]:
 				if g == s:
 					t += 1
-		if t != 30 or eng.court[s] < 0 or eng.prov[s] < 0:
+		if t != eng.total_cab or eng.court[s] < 0 or eng.prov[s] < 0:
 			errors += 1
 			push_error("totale Caballeros %d per %d (corte %d, province %d)" % [t, s, eng.court[s], eng.prov[s]])
