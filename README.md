@@ -14,8 +14,9 @@ Adattamento digitale non ufficiale, per uso personale, di **El Grande** di Wolfg
 - **Da 2 a 5 giocatori**, umani e **IA** (Facile, Normale, Difficile) in qualunque combinazione, hotseat con la "tenda"
   per le scelte segrete.
 - **Gioco online** su Firebase: ognuno dal suo dispositivo con un codice di 4 lettere.
-- Tabellone originale ripulito dai riquadri del modulo TTS, carte azione rifatte in italiano con le illustrazioni
-  originali, carte potere originali. Titoli in UnifrakturMaguntia, testi in Alegreya (caratteri OFL).
+- Tabellone originale ripulito dai riquadri del modulo TTS, carte azione italiane scansionate, carte potere originali.
+- Plance dei giocatori come quelle del tavolo: province (sulla carta della regione del Grande), corte, carta potere
+  giocata e punti; i Caballeros si spostano animati fra province, corte e tabellone. Titoli in UnifrakturMaguntia, testi in Alegreya (caratteri OFL).
 
 ## L'IA
 Valuta la posizione come i punti che ogni giocatore farebbe se tutto venisse valutato adesso, rispetto agli
@@ -35,8 +36,7 @@ casualità vince il 39% delle partite a 4 giocatori.
 
 ## Interpretazioni della versione digitale
 - Il regolamento italiano dà Valencia 5/3/2: vale il tabellone (5/3/1).
-- Le due carte "Autorità in declino" del modulo TTS hanno la stessa immagine; come da regolamento una fa rimandare
-  3 Caballeros della corte, l'altra tutti.
+- "Perdita di autorità": come sulle carte italiane, una fa rimandare 3 Caballeros della corte, l'altra tutti.
 - Il Veto annulla l'intera azione speciale (non il piazzamento). Viene chiesto prima che l'azione cominci.
 - Se tutte le carte potere rimaste in mano hanno valori già giocati nel round, se ne gioca una qualsiasi e si va
   dopo chi l'aveva giocata prima.

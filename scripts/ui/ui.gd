@@ -58,16 +58,6 @@ static func power_tex(color_id: int, v: int) -> Texture2D:
 	return tex("res://assets/power/%s_%d.jpg" % [EGData.COLORS[color_id]["key"], v])
 
 
-static func action_art(ci: int) -> Texture2D:
-	var key := "art_%d" % ci
-	if not _tex.has(key):
-		var at := AtlasTexture.new()
-		at.atlas = tex("res://assets/actions/%s.jpg" % EGData.CARDS[ci]["art"])
-		at.region = Rect2(22, 14, 352, 172)
-		_tex[key] = at
-	return _tex[key]
-
-
 static func pcol(color_id: int) -> Color:
 	return EGData.COLORS[color_id]["col"]
 

@@ -8,10 +8,12 @@ const BoardView = preload("res://scripts/ui/board_view.gd")
 const Plancia = preload("res://scripts/ui/plancia.gd")
 const CAS := 9
 const BOARD_POS := Vector2(10, 10)
-const BOARD_W := 1150.0
-const RX := 1172.0
-const RW := 740.0
-const CARDS_Y := 866.0
+const BOARD_W := 1230.0
+const RX := 1252.0
+const RW := 658.0
+const CARD_W := 126.0
+const CARD_H := 177.0
+const LOW_Y := 920.0          # sotto la mappa: istruzioni e cronaca
 
 var main
 var config: Dictionary
@@ -175,27 +177,28 @@ func _build_side() -> void:
 	rows_box.position = Vector2(RX, 80)
 	rows_box.add_theme_constant_override("separation", 6)
 	add_child(rows_box)
+	var cards_y := 1072.0 - CARD_H
+	var ph := minf(205.0, (cards_y - 8 - 80 - 6 * (engine.n - 1)) / engine.n)
 	for s in engine.n:
 		var pl := Plancia.new()
 		pl.eng = engine
 		pl.seat = s
 		pl.view = self
+		pl.setup(RW, ph)
 		rows_box.add_child(pl)
 		plance.append(pl)
-	var used: float = 80 + engine.n * (Plancia.H + 6)
 
-	# carte azione del round, sotto il tabellone
+	# carte azione del round, sotto le plance
 	cards_box = HBoxContainer.new()
-	cards_box.position = Vector2(BOARD_POS.x, CARDS_Y)
+	cards_box.position = Vector2(RX, cards_y)
 	cards_box.add_theme_constant_override("separation", 6)
 	add_child(cards_box)
 
-	# cronaca (lo spazio che avanza sotto le plance)
+	# cronaca, sotto la mappa a destra
 	var cp := PanelContainer.new()
-	cp.position = Vector2(RX, used + 4)
-	cp.custom_minimum_size = Vector2(RW, maxf(0.0, 1072 - used - 4))
+	cp.position = Vector2(BOARD_POS.x + 620, LOW_Y)
+	cp.custom_minimum_size = Vector2(BOARD_W - 620 + 4, 1072 - LOW_Y)
 	cp.size = cp.custom_minimum_size
-	cp.visible = 1072 - used > 60
 	cp.add_theme_stylebox_override("panel", UI.panel_style(Color("#140b06"), Color("#3a2614"), 1, 6))
 	add_child(cp)
 	chron = RichTextLabel.new()
@@ -208,11 +211,9 @@ func _build_side() -> void:
 
 
 func _build_bottom() -> void:
-	var y := CARDS_Y - 2
-	var x0 := BOARD_POS.x + 5 * 113 + 4 * 6 + 12
 	var p := PanelContainer.new()
-	p.position = Vector2(x0, y)
-	p.custom_minimum_size = Vector2(BOARD_POS.x + BOARD_W - x0 + 4, 1072 - y)
+	p.position = Vector2(BOARD_POS.x - 4, LOW_Y)
+	p.custom_minimum_size = Vector2(612, 1072 - LOW_Y)
 	p.size = p.custom_minimum_size
 	var st := UI.panel_style(Color("#24150b"), UI.GOLD_D, 2, 8)
 	p.add_theme_stylebox_override("panel", st)
@@ -322,7 +323,7 @@ func _refresh_cards() -> void:
 	var choosing: bool = pending.get("type", "") == "action"
 	for ci in engine.showing:
 		var cv := CardView.new()
-		cv.setup(ci, Vector2(113, 206))
+		cv.setup(ci, Vector2(CARD_W, CARD_H))
 		if engine.taken.has(ci):
 			cv.owner_color = engine.players[engine.taken[ci]]["color"]
 		if choosing and ci in pending["cards"]:
@@ -339,9 +340,9 @@ func _card_popup(ci: int, on: bool) -> void:
 	if not on:
 		return
 	var cv := CardView.new()
-	cv.setup(ci, Vector2(300, 470), true)
+	cv.setup(ci, Vector2(360, 506), true)
 	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cv.position = Vector2(BOARD_POS.x + 600, CARDS_Y - 480)
+	cv.position = Vector2(RX - 372, 1072 - 516)
 	popup.add_child(cv)
 
 
@@ -626,7 +627,7 @@ func _on_decision(req: Dictionary) -> void:
 		"power":
 			_power_modal(req)
 		"action":
-			msg_lbl.text = _cap(_who(s) + "scegli una carta azione: clic su una delle carte qui a sinistra (passaci sopra il mouse per leggerla).")
+			msg_lbl.text = _cap(_who(s) + "scegli una carta azione: clic su una delle carte in basso a destra (passaci sopra il mouse per leggerla).")
 			_refresh_cards()
 			_clear_buttons()
 		"pick":
@@ -790,7 +791,7 @@ func _pick_modal(req: Dictionary) -> void:
 	vb.add_child(hb)
 	if req.has("card"):
 		var cv := CardView.new()
-		cv.setup(int(req["card"]), Vector2(220, 344), true)
+		cv.setup(int(req["card"]), Vector2(250, 351), true)
 		hb.add_child(cv)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)

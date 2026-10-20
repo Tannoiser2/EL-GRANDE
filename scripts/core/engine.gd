@@ -635,7 +635,7 @@ func _special(s: int, ci: int) -> void:
 			flow(s, "prov", "court", q)
 			log_msg("%s porta %d Caballeros dalle province alla corte." % [pname(s), q])
 		"advisor":
-			var r := await pick_region(s, "advisor", "Consigliere reale: muovi il Re in una regione confinante", D.ADJ[king].duplicate())
+			var r := await pick_region(s, "advisor", "Editto reale: muovi il Re in una regione confinante", D.ADJ[king].duplicate())
 			_move_king(r)
 		"king":
 			var allowed := range(9)
@@ -660,7 +660,7 @@ func _special(s: int, ci: int) -> void:
 					if cab[r][(s + k) % n] > 0:
 						allowed.append(r)
 						break
-			var r := await pick_region(s, "evict", "Movimento: scegli la regione da sgomberare", allowed)
+			var r := await pick_region(s, "evict", "Espulsione: scegli la regione da sgomberare", allowed)
 			if r < 0:
 				return
 			log_msg("%s sceglie %s: gli avversari devono andarsene." % [pname(s), rname(r)])
@@ -668,7 +668,7 @@ func _special(s: int, ci: int) -> void:
 			for k in range(1, n):
 				var o := (s + k) % n
 				if cab[r][o] > 0:
-					dest[o] = await pick_region(o, "evict_dest", "Movimento: dove sposti i tuoi %d Caballeros da %s?" % [cab[r][o], rname(r)], range(9), false, {"secret": true, "from": r})
+					dest[o] = await pick_region(o, "evict_dest", "Espulsione: dove sposti i tuoi %d Caballeros da %s?" % [cab[r][o], rname(r)], range(9), false, {"secret": true, "from": r})
 			for o in dest:
 				var q: int = cab[r][o]
 				cab[r][o] = 0

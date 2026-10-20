@@ -1,27 +1,35 @@
 extends Control
 ## Plancia del giocatore, come quella del tavolo: a sinistra le province (sulla carta della regione del
-## suo Grande) con i Caballeros, a destra la corte, al centro la carta potere giocata con i punti sopra.
+## suo Grande) con i Caballeros, a destra la corte, al centro la carta potere giocata. In alto il nome
+## con i punti vittoria. Le misure si adattano allo spazio (più giocatori, plance più basse).
 
 const D = preload("res://scripts/data/eg_data.gd")
-const W := 740.0
-const H := 186.0
-const PROV := Rect2(16, 32, 250, 148)
-const COURT := Rect2(474, 32, 250, 148)
-const CARD := Rect2(339, 88, 62, 93)
-const CUBE := 19.0
-const STEP := Vector2(27, 29)
-const COLS := 8
+const HEAD := 32.0
+const COLS := 6
 
 var eng: EGEngine
 var seat := 0
 var view
 var bg: Texture2D
 var t := 0.0
+var S := 150.0                  # lato dei riquadri quadrati
+var prov_r := Rect2()
+var court_r := Rect2()
+var card_r := Rect2()
+
+
+func setup(w: float, h: float) -> void:
+	custom_minimum_size = Vector2(w, h)
+	size = Vector2(w, h)
+	S = h - HEAD - 8
+	var cw := S * 0.67
+	var gap := (w - 2 * S - cw) / 4.0
+	prov_r = Rect2(gap, HEAD + 2, S, S)
+	card_r = Rect2(gap * 2 + S, HEAD + 2, cw, S)
+	court_r = Rect2(gap * 3 + S + cw, HEAD + 2, S, S)
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(W, H)
-	size = Vector2(W, H)
 	bg = UI.tex("res://assets/plancia_bg.jpg")
 	mouse_filter = Control.MOUSE_FILTER_PASS
 
@@ -50,21 +58,21 @@ func update_info() -> void:
 
 ## Centro (coordinate globali) della casella i delle province o della corte.
 func prov_point(i := -1) -> Vector2:
-	return global_position + _slot(PROV, i if i >= 0 else maxi(0, eng.prov[seat] - 1))
+	return global_position + _slot(prov_r, i if i >= 0 else maxi(0, eng.prov[seat] - 1))
 
 
 func court_point(i := -1) -> Vector2:
-	return global_position + _slot(COURT, i if i >= 0 else maxi(0, eng.court[seat] - 1))
+	return global_position + _slot(court_r, i if i >= 0 else maxi(0, eng.court[seat] - 1))
+
+
+func _step() -> float:
+	return (S - 14) / float(COLS)
 
 
 func _slot(fr: Rect2, i: int) -> Vector2:
-	var rows := 4
-	var cap := COLS * rows
-	i = clampi(i, 0, cap - 1)
-	var x0 := fr.position.x + (fr.size.x - (COLS - 1) * STEP.x) / 2.0
-	# nelle province i cubetti lasciano leggere il nome della regione sulla carta
-	var y0 := fr.position.y + (48 if fr == PROV else 26)
-	return Vector2(x0 + (i % COLS) * STEP.x, y0 + (i / COLS) * STEP.y)
+	var st := _step()
+	i = clampi(i, 0, COLS * 6 - 1)
+	return fr.position + Vector2(7 + st * (i % COLS) + st / 2.0, 9 + st * (i / COLS) + st / 2.0)
 
 
 func _draw() -> void:
@@ -74,99 +82,97 @@ func _draw() -> void:
 	var col := UI.pcol(p["color"])
 	var light := UI.plight(p["color"])
 	var full := Rect2(Vector2.ZERO, size)
-	# sfondo seppia (la striscia centrale del paesaggio)
-	var src_h := 1208.0 * H / W
+	# sfondo seppia (striscia centrale del paesaggio)
+	var src_h := minf(380.0, 1208.0 * size.y / size.x)
 	draw_texture_rect_region(bg, full, Rect2(0, (380.0 - src_h) / 2.0, 1208, src_h))
-	draw_rect(full, Color(0.12, 0.07, 0.03, 0.12))
-	var active := _active()
+	draw_rect(full, Color(0.12, 0.07, 0.03, 0.10))
+	# intestazione: nome e punti vittoria
+	draw_rect(Rect2(0, 0, size.x, HEAD), Color(0.1, 0.06, 0.03, 0.82))
+	var f := UI.font_sc_b
+	var nm: String = p["name"] + (" · IA" if p["ai"] else "")
+	var x := 12.0
+	_text(nm, 22, Vector2(x, 24), light)
+	x += f.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 18
+	var pv := str(eng.score[seat])
+	_text(pv, 30, Vector2(x, 27), UI.GOLD)
+	x += f.get_string_size(pv, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x + 5
+	_text("PV", 17, Vector2(x, 26), UI.GOLD.darkened(0.15))
+	var rx := size.x - 10
+	if eng.veto_active(seat):
+		rx = _tag_right(rx, "VETO", UI.RED, Color.WHITE)
+	if eng.start_seat == seat and eng.phase == "power":
+		rx = _tag_right(rx, "inizia il round", Color(0.25, 0.16, 0.08), UI.GOLD)
 	# nastri dalle province alla carta e dalla carta alla corte
-	var rib := Color(col.r, col.g, col.b, 0.28)
-	_ribbon(Vector2(PROV.end.x - 30, PROV.position.y + 70), Vector2(CARD.position.x + 6, CARD.position.y + 40), rib)
-	_ribbon(Vector2(CARD.end.x - 6, CARD.position.y + 40), Vector2(COURT.position.x + 30, COURT.position.y + 70), rib)
-	# riquadri
-	for fr in [PROV, COURT]:
+	var rib := Color(col.r, col.g, col.b, 0.3)
+	var mid := prov_r.position.y + S * 0.5
+	_ribbon(Vector2(prov_r.end.x - 8, mid), Vector2(card_r.position.x + 4, mid), rib)
+	_ribbon(Vector2(card_r.end.x - 4, mid), Vector2(court_r.position.x + 8, mid), rib)
+	# riquadri quadrati
+	for fr in [prov_r, court_r]:
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(1, 0.97, 0.9, 0.38)
+		sb.bg_color = Color(1, 0.97, 0.9, 0.35)
 		sb.border_color = col
 		sb.set_border_width_all(3)
-		sb.set_corner_radius_all(12)
+		sb.set_corner_radius_all(10)
 		sb.shadow_color = Color(col.r, col.g, col.b, 0.35)
-		sb.shadow_size = 5
-		sb.shadow_offset = Vector2(0, 0)
+		sb.shadow_size = 4
 		draw_style_box(sb, fr)
 	# carta della regione del Grande, sotto i Caballeros delle province
 	var g: int = eng.grande[seat]
 	if g >= 0:
-		var rt := UI.tex("res://assets/regions/r%d.jpg" % g)
-		var cs := PROV.size.y - 14
-		draw_texture_rect(rt, Rect2(PROV.position + Vector2((PROV.size.x - cs) / 2.0, 7), Vector2(cs, cs)), false, Color(1, 1, 1, 0.95))
+		draw_texture_rect(UI.tex("res://assets/regions/r%d.jpg" % g), prov_r.grow(-6), false, Color(1, 1, 1, 0.92))
 	# Caballeros
+	var cs := _step() * 0.78
 	var outline := Color(0.08, 0.04, 0.0, 0.85)
 	for i in eng.prov[seat]:
-		UI.draw_cube(self, _slot(PROV, i), CUBE, col, outline)
+		UI.draw_cube(self, _slot(prov_r, i), cs, col, outline)
 	for i in eng.court[seat]:
-		UI.draw_cube(self, _slot(COURT, i), CUBE, col, outline)
-	# etichette dei riquadri
-	_tag(Vector2(PROV.position.x + 10, 4), "Province  %d" % eng.prov[seat], light)
-	_tag(Vector2(COURT.position.x + 10, 4), "Corte  %d" % eng.court[seat], light)
-	# centro: nome, punti, carta potere
-	var f := UI.font_sc_b
-	var nm: String = p["name"] + (" · IA" if p["ai"] else "")
-	_center_text(nm, 20, Vector2(370, 22), light, 160)
-	var pv := str(eng.score[seat])
-	_center_text(pv, 46, Vector2(358, 74), UI.GOLD, 120, 7)
-	draw_string(f, Vector2(358 + f.get_string_size(pv, HORIZONTAL_ALIGNMENT_LEFT, -1, 46).x / 2.0 + 4, 74), "PV", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, UI.GOLD.darkened(0.15))
+		UI.draw_cube(self, _slot(court_r, i), cs, col, outline)
+	# numeri nell'angolo dei riquadri
+	_corner(prov_r, "Province", eng.prov[seat], light)
+	_corner(court_r, "Corte", eng.court[seat], light)
+	# carta potere giocata (o il dorso), grande quanto i riquadri
 	var v: int = eng.played[seat]
 	var ct: Texture2D = UI.power_tex(p["color"], v) if v > 0 else UI.tex("res://assets/backs/power.jpg")
-	draw_rect(CARD.grow(3), Color(0, 0, 0, 0.45))
-	draw_texture_rect(ct, CARD, false, Color.WHITE if v > 0 else Color(0.75, 0.7, 0.62))
-	if v > 0:
-		_center_text("%d cab." % D.POWER_CAB[v], 14, Vector2(CARD.get_center().x, CARD.end.y + 1), Color("#fff2d0"), 80, 4)
-	if eng.veto_active(seat):
-		var vr := Rect2(Vector2(CARD.end.x + 6, CARD.position.y + 20), Vector2(56, 24))
-		draw_rect(vr, UI.RED)
-		draw_rect(vr, UI.GOLD, false, 1.5)
-		draw_string(f, Vector2(vr.position.x, vr.position.y + 18), "VETO", HORIZONTAL_ALIGNMENT_CENTER, vr.size.x, 16, Color.WHITE)
-	if eng.start_seat == seat and eng.phase == "power":
-		var ir := Rect2(Vector2(CARD.position.x - 62, CARD.position.y + 20), Vector2(56, 24))
-		draw_rect(ir, Color(0.1, 0.06, 0.03, 0.85))
-		draw_rect(ir, UI.GOLD, false, 1.0)
-		draw_string(f, Vector2(ir.position.x, ir.position.y + 18), "inizia", HORIZONTAL_ALIGNMENT_CENTER, ir.size.x, 16, UI.GOLD)
+	draw_rect(card_r.grow(2), Color(0, 0, 0, 0.5))
+	draw_texture_rect(ct, card_r, false, Color.WHITE if v > 0 else Color(0.75, 0.7, 0.62))
 	# bordo: più marcato per chi è di turno
 	var bw := 2.0
 	var bc := Color(col.r, col.g, col.b, 0.7)
-	if active:
+	if _active():
 		bw = 4.0
 		bc = light.lerp(Color.WHITE, 0.25 + 0.25 * sin(t * 4.0))
 	draw_rect(full.grow(-1), bc, false, bw)
 
 
-func _tag(pos: Vector2, text: String, col: Color) -> void:
+func _text(s: String, fs: int, pos: Vector2, col: Color) -> void:
+	draw_string_outline(UI.font_sc_b, pos, s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, Color(0.05, 0.02, 0.0, 0.9))
+	draw_string(UI.font_sc_b, pos, s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+
+func _tag_right(rx: float, s: String, bgc: Color, fg: Color) -> float:
+	var w := UI.font_sc_b.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x + 14
+	var r := Rect2(Vector2(rx - w, 5), Vector2(w, 22))
+	draw_rect(r, bgc)
+	draw_rect(r, UI.GOLD, false, 1.0)
+	draw_string(UI.font_sc_b, Vector2(r.position.x, r.position.y + 17), s, HORIZONTAL_ALIGNMENT_CENTER, w, 16, fg)
+	return rx - w - 8
+
+
+## Numero nell'angolo in basso a destra del riquadro, con il nome della zona.
+func _corner(fr: Rect2, label: String, q: int, col: Color) -> void:
 	var f := UI.font_sc_b
-	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
-	var r := Rect2(pos, Vector2(w + 16, 25))
-	draw_rect(r, Color(0.1, 0.06, 0.03, 0.82))
+	var num := str(q)
+	var wn := f.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	var wl := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	var r := Rect2(fr.end - Vector2(wn + wl + 22, 30), Vector2(wn + wl + 16, 25))
+	draw_rect(r, Color(0.1, 0.06, 0.03, 0.85))
 	draw_rect(r, col, false, 1.0)
-	draw_string(f, pos + Vector2(8, 19), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("#f6e8c8"))
+	draw_string(f, Vector2(r.position.x + 6, r.position.y + 17), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#e8d8b8"))
+	draw_string(f, Vector2(r.position.x + 10 + wl, r.position.y + 21), num, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color.WHITE)
 
 
-func _center_text(text: String, fs: int, base: Vector2, col: Color, w: float, outline := 5) -> void:
-	var f := UI.font_sc_b
-	var p := Vector2(base.x - w / 2.0, base.y)
-	draw_string_outline(f, p, text, HORIZONTAL_ALIGNMENT_CENTER, w, fs, outline, Color(0.08, 0.04, 0.0, 0.9))
-	draw_string(f, p, text, HORIZONTAL_ALIGNMENT_CENTER, w, fs, col)
-
-
-## Nastro curvo con punta di freccia (come sulle plance del gioco).
+## Nastro con punta di freccia (come sulle plance del gioco).
 func _ribbon(a: Vector2, b: Vector2, col: Color) -> void:
-	var pts := PackedVector2Array()
-	var c1 := a + Vector2((b.x - a.x) * 0.5, -10)
-	var c2 := b + Vector2(-(b.x - a.x) * 0.5, 10)
-	for i in 21:
-		var u := i / 20.0
-		var p := a.bezier_interpolate(c1, c2, b, u)
-		pts.append(p)
-	draw_polyline(pts, col, 16.0, true)
-	var dir := (b - pts[18]).normalized()
-	var nrm := Vector2(-dir.y, dir.x)
-	draw_colored_polygon(PackedVector2Array([b + dir * 12, b - dir * 6 + nrm * 16, b - dir * 6 - nrm * 16]), col)
+	draw_line(a, b - Vector2(10, 0), col, 14.0, true)
+	draw_colored_polygon(PackedVector2Array([b + Vector2(4, 0), b - Vector2(14, 14), b - Vector2(14, -14)]), col)
