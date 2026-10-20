@@ -26,6 +26,11 @@ speciale, dove piazzare, chi spostare con gli intrighi, dove mandare il Re o il 
 - i Caballeros a corte perdono valore verso la fine della partita.
 I pesi sono stati tarati con migliaia di partite simulate contro la versione precedente: in 4 giocatori la nuova
 vince il 43% delle partite (contro il 25% atteso), in 3 il 44%, in 5 il 31%.
+
+Al livello **Difficile** l'IA guarda anche avanti: per le tre carte azione più promettenti simula il resto del
+round, con ogni avversario che gioca dopo di lei che prende la carta rimasta migliore per sé e la usa al meglio
+(intrighi compresi), e sceglie tenendo conto di come resterà il tabellone. Contro la versione "Normale" senza
+casualità vince il 39% delle partite a 4 giocatori.
 "Facile" e "Normale" aggiungono un po' di casualità alle scelte, "Difficile" no.
 
 ## Interpretazioni della versione digitale

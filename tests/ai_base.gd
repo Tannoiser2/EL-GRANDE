@@ -24,6 +24,7 @@ func _init(lvl := 1, seed_val := 0) -> void:
 func decide(e: EGEngine, s: int, req: Dictionary):
 	eng = e
 	me = s
+	_prepare()
 	match req["type"]:
 		"power":
 			return _power(req)
@@ -48,10 +49,34 @@ func _noise() -> float:
 	return [1.6, 0.5, 0.0][clampi(level, 0, 2)] * (rng.randf() - 0.5)
 
 
-## Contributo di una regione per il giocatore p (punti miei meno quelli degli avversari).
-func region_term(r: int, p: int) -> float:
-	var pts := eng.region_points(r)
-	var mine: float = pts.get(p, 0)
+## Peso delle maggioranze sul tabellone rispetto ai punti già fatti: più è lontana la prossima
+## valutazione generale, meno le posizioni attuali sono sicure.
+var wb := 1.0
+## Valore di un Caballero a corte (cala verso la fine: a fine partita non serve più).
+var wc := 0.32
+var om := 0.55
+
+
+func _prepare() -> void:
+	var rem := 0
+	var k := 9
+	for x in [3, 6, 9]:
+		if eng.cur_round <= x:
+			k = x
+			break
+	for r in eng.rounds:
+		if r > eng.cur_round and r <= k:
+			rem += 1
+	wb = 1.0 / (1.0 + P("tw", 0.25) * rem)
+	var left := 0
+	for r in eng.rounds:
+		if r > eng.cur_round:
+			left += 1
+	wc = P("cw", 0.32) * clampf(left / 2.0, 0.0, 1.0)
+	om = P("om", 0.55)
+
+
+func _oth(pts: Dictionary, p: int) -> float:
 	var omax := 0.0
 	var osum := 0.0
 	for t in eng.n:
@@ -60,8 +85,14 @@ func region_term(r: int, p: int) -> float:
 		var v: float = pts.get(t, 0)
 		omax = maxf(omax, v)
 		osum += v
-	var oth := omax if eng.n == 2 else 0.55 * omax + 0.45 * osum / float(eng.n - 1)
-	var val := mine - oth
+	return omax if eng.n == 2 else om * omax + (1.0 - om) * osum / float(eng.n - 1)
+
+
+## Contributo di una regione per il giocatore p (punti miei meno quelli degli avversari).
+func region_term(r: int, p: int) -> float:
+	var pts := eng.region_points(r)
+	var mine: float = pts.get(p, 0)
+	var val := mine - _oth(pts, p)
 	# solidità del vantaggio: un margine largo resiste agli intrighi
 	var c: Array = eng.cab[r]
 	var best_o := 0
@@ -70,23 +101,41 @@ func region_term(r: int, p: int) -> float:
 			best_o = maxi(best_o, c[t])
 	var margin: int = c[p] - best_o
 	if c[p] > 0:
-		val += 0.12 * clampf(margin, -3, 3) * float(eng.vals(r)[0]) / 5.0
+		val += P("mg", 0.12) * clampf(margin, -3, 3) * float(eng.vals(r)[0]) / 5.0
 	if r == CAS:
-		val += 0.35 * c[p]
-	return val
+		val += P("cas", 0.2) * c[p]
+		if c[p] > 0 and P("casr", 0.8) > 0.0:
+			val += P("casr", 0.8) * _redeploy(p, c[p])
+	return val * wb
+
+
+## Quanto renderebbero i q Caballeros di p nel Castillo, spostati nella regione migliore.
+func _redeploy(p: int, q: int) -> float:
+	var best := 0.0
+	for r in 9:
+		if r == eng.king:
+			continue
+		var pts0 := eng.region_points(r)
+		var b0: float = pts0.get(p, 0) - _oth(pts0, p)
+		eng.cab[r][p] += q
+		var pts1 := eng.region_points(r)
+		var b1: float = pts1.get(p, 0) - _oth(pts1, p)
+		eng.cab[r][p] -= q
+		best = maxf(best, b1 - b0)
+	return best
 
 
 func global_term(p: int) -> float:
-	var v: float = eng.score[p] + 0.32 * eng.court[p] + 0.04 * eng.prov[p]
+	var v: float = eng.score[p] + wc * eng.court[p] + 0.04 * eng.prov[p]
 	var omax := -999.0
 	var osum := 0.0
 	for t in eng.n:
 		if t == p:
 			continue
-		var w: float = eng.score[t] + 0.25 * eng.court[t]
+		var w: float = eng.score[t] + wc * 0.8 * eng.court[t]
 		omax = maxf(omax, w)
 		osum += w
-	var oth := omax if eng.n == 2 else 0.55 * omax + 0.45 * osum / float(eng.n - 1)
+	var oth := omax if eng.n == 2 else om * omax + (1.0 - om) * osum / float(eng.n - 1)
 	return v - oth
 
 
@@ -720,10 +769,11 @@ func _action(req: Dictionary) -> int:
 # ================================================================ carte potere
 
 func P(k: String, d: float) -> float:
+	var v := d
 	for part in exp.split(","):
 		if part.begins_with(k + "="):
-			return float(part.substr(k.length() + 1))
-	return d
+			v = float(part.substr(k.length() + 1))
+	return v
 
 
 func _power(req: Dictionary) -> int:
@@ -765,8 +815,8 @@ func _power(req: Dictionary) -> int:
 		var ki := clampi(int(round(k)), 0, cv.size() - 1)
 		var pos_val: float = cv[ki]
 		var cabs: int = mini(D.POWER_CAB[v], eng.prov[me])
-		var need := 0.75 if court0 < 4 else (0.45 if court0 < 8 else 0.2)
-		var cab_val := cabs * need
+		var nd := 0.75 if court0 < 4 else (0.45 if court0 < 8 else 0.2)
+		var cab_val := cabs * nd
 		var avg := 0.0
 		for h in eng.hand[me]:
 			avg += h

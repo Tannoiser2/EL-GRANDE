@@ -216,24 +216,39 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 	for step in int(spec["max"]):
 		var best = null
 		var bv := 0.05
+		# le due regioni cambiano indipendentemente: si calcolano a parte il togliere e l'aggiungere
+		var base := []
+		for r in 10:
+			base.append(region_term(r, p) if r != eng.king else 0.0)
+		var add := {}
+		for q in eng.n:
+			if (q == p and own >= int(spec["own"])) or (q != p and foe >= int(spec["foe"])):
+				continue
+			var row := []
+			for b in 10:
+				if b == eng.king:
+					row.append(-INF)
+					continue
+				eng.cab[b][q] += 1
+				row.append(region_term(b, p) - base[b])
+				eng.cab[b][q] -= 1
+			add[q] = row
 		for a in 9:
 			if a == eng.king:
 				continue
 			for q in eng.n:
-				if eng.cab[a][q] <= 0:
+				if eng.cab[a][q] <= 0 or not add.has(q):
 					continue
 				if not _src_ok(p, spec, a, q, own, foe, src):
 					continue
-				var base := region_term(a, p)
+				eng.cab[a][q] -= 1
+				var da: float = region_term(a, p) - base[a]
+				eng.cab[a][q] += 1
+				var row: Array = add[q]
 				for b in 10:
 					if b == a or b == eng.king:
 						continue
-					var b0 := region_term(b, p)
-					eng.cab[a][q] -= 1
-					eng.cab[b][q] += 1
-					var v := region_term(a, p) + region_term(b, p) - base - b0 + _noise() * 0.3
-					eng.cab[a][q] += 1
-					eng.cab[b][q] -= 1
+					var v: float = da + row[b] + _noise() * 0.3
 					if v > bv:
 						bv = v
 						best = [a, b, q]
@@ -754,14 +769,85 @@ func _plan(ci: int) -> Dictionary:
 	return {"value": maxf(a, b), "special_first": b > a + 0.01}
 
 
+## Esegue sullo stato il piano migliore per la carta ci (lo stato resta modificato).
+func _apply_plan(ci: int) -> void:
+	var pile: int = D.CARDS[ci]["pile"]
+	var pl := _plan(ci)
+	if pl["special_first"]:
+		var b0 := evaluate(me)
+		var sn := snap()
+		var v := _special_value(ci)
+		if v < b0:
+			restore(sn)
+		_apply_place(_place(pile, eng.place_targets()), me)
+	else:
+		_apply_place(_place(pile, eng.place_targets()), me)
+		var b1 := evaluate(me)
+		var sn2 := snap()
+		var v2 := _special_value(ci)
+		if v2 < b1:
+			restore(sn2)
+
+
+## Valore della carta ci tenendo conto delle risposte di chi gioca dopo di me in questo round:
+## ognuno prende la carta rimasta migliore per sé e la gioca al meglio.
+func _lookahead(ci: int, cards: Array) -> float:
+	var sn := snap()
+	var saved := me
+	_apply_plan(ci)
+	var avail := cards.duplicate()
+	avail.erase(ci)
+	var pos := eng.order.find(saved)
+	if pos >= 0:
+		for k in range(pos + 1, mini(eng.order.size(), pos + 1 + int(P("lah", 4)))):
+			if avail.is_empty():
+				break
+			var t: int = eng.order[k]
+			me = t
+			var q: int = mini(D.POWER_CAB[eng.played[t]], eng.prov[t])
+			eng.prov[t] -= q
+			eng.court[t] += q
+			var bc: int = avail[0]
+			var bv := -INF
+			for c in avail:
+				var v: float = _plan(c)["value"]
+				if v > bv:
+					bv = v
+					bc = c
+			avail.erase(bc)
+			_apply_plan(bc)
+	me = saved
+	var out := evaluate(me)
+	restore(sn)
+	return out
+
+
 func _action(req: Dictionary) -> int:
 	var cards: Array = req["cards"]
+	var vals := {}
+	for c in cards:
+		vals[c] = _plan(c)["value"] + _noise()
+	var la := P("la", 0.5) if level >= 2 else 0.0
+	if la > 0.0 and cards.size() > 1 and eng.order.find(me) < eng.order.size() - 1:
+		# solo le carte più promettenti, per non rallentare troppo
+		var ranked := cards.duplicate()
+		ranked.sort_custom(func(x, y): return vals[x] > vals[y])
+		var top: Array = ranked.slice(0, int(P("lak", 3)))
+		var la_vals := {}
+		var la_max := -INF
+		for c in top:
+			la_vals[c] = _lookahead(c, cards)
+			la_max = maxf(la_max, la_vals[c])
+		for c in cards:
+			if la_vals.has(c):
+				vals[c] = (1.0 - la) * vals[c] + la * la_vals[c]
+			else:
+				vals[c] = -INF
 	var best: int = cards[0]
 	var bv := -INF
 	for c in cards:
-		var v: float = _plan(c)["value"] + _noise()
-		if v > bv:
-			bv = v
+		if vals[c] > bv:
+			bv = vals[c]
 			best = c
 	return best
 
