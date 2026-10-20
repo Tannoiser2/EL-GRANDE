@@ -27,6 +27,8 @@ func _run() -> void:
 	var menu = main.current
 	menu.seat_mode = [0, 0, 1, 2, 2]
 	menu.speed = 3
+	if OS.get_environment("EG_VARIANT") != "":
+		menu.variant = OS.get_environment("EG_VARIANT")
 	menu._online_panel()
 	menu.on_name.text = "Host" if role == "host" else "Ospite"
 	if role == "host":

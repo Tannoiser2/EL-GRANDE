@@ -11,6 +11,11 @@ var level := 1
 var speed := 1
 var short := false
 var cas_hidden := false
+var variant := "base"
+const VARIANTS := [
+	["base", "Gioco base", "Le regole della scatola di El Grande."],
+	["grandissimo", "Grandissimo", "Portogallo, nave, prigione, Regina e Giullare, Grande Inquisitore e 19 nuove carte azione."],
+]
 var msg: Label
 
 
@@ -22,6 +27,7 @@ func _ready() -> void:
 		speed = main.menu_state["speed"]
 		short = main.menu_state.get("short", false)
 		cas_hidden = main.menu_state.get("cas_hidden", false)
+		variant = main.menu_state.get("variant", "base")
 	var bg := TextureRect.new()
 	bg.texture = UI.tex("res://assets/board.jpg")
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -85,6 +91,8 @@ func _ready() -> void:
 	ov.add_child(_segmented("Durata", ["9 round (2 ore)", "6 round (1 ora)"], 1 if short else 0, func(k): short = k == 1))
 	ov.add_child(_segmented("Castillo", ["Scoperto", "Coperto (si ricorda)"], 1 if cas_hidden else 0, func(k): cas_hidden = k == 1))
 
+	_variant_box()
+
 	msg = UI.label("", 26, UI.RED_L, UI.font_sc_b)
 	msg.position = Vector2(62, 1000)
 	add_child(msg)
@@ -110,9 +118,7 @@ func _ready() -> void:
 	b_online.position = Vector2(1438, 912)
 	b_online.pressed.connect(_online_panel)
 	add_child(b_online)
-	var on_note := UI.label("Con gli amici, ognuno dal suo dispositivo:\ncrea una stanza e condividi il codice.", 21, Color("#cdbd9a"))
-	on_note.position = Vector2(1440, 840)
-	add_child(on_note)
+
 	if not main.lobby.is_empty():
 		_online_panel.call_deferred()
 
@@ -123,7 +129,43 @@ func _ready() -> void:
 
 
 func _store() -> void:
-	main.menu_state = {"seat_mode": seat_mode.duplicate(), "level": level, "speed": speed, "short": short, "cas_hidden": cas_hidden}
+	main.menu_state = {"seat_mode": seat_mode.duplicate(), "level": level, "speed": speed, "short": short, "cas_hidden": cas_hidden, "variant": variant}
+
+
+## Riquadro delle espansioni (una sola alla volta).
+func _variant_box() -> void:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", UI.panel_style(Color("#140b06dd"), UI.GOLD_D, 1, 8))
+	box.position = Vector2(1262, 650)
+	box.custom_minimum_size = Vector2(596, 0)
+	add_child(box)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	box.add_child(vb)
+	vb.add_child(UI.label("Espansione", 28, Color.WHITE, UI.font_sc_b))
+	var btns := []
+	for v in VARIANTS:
+		var b := Button.new()
+		b.text = v[1]
+		b.custom_minimum_size = Vector2(570, 38)
+		b.tooltip_text = v[2]
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.add_theme_font_size_override("font_size", 22)
+		vb.add_child(b)
+		btns.append(b)
+	var paint := func():
+		for i in VARIANTS.size():
+			var on: bool = VARIANTS[i][0] == variant
+			btns[i].add_theme_stylebox_override("normal", UI.panel_style(UI.GOLD if on else Color("#24170d"), UI.GOLD if on else Color("#4a3a2a"), 2, 4))
+			btns[i].add_theme_color_override("font_color", UI.DARK if on else Color("#e8dcc0"))
+			btns[i].add_theme_color_override("font_hover_color", UI.DARK if on else UI.GOLD)
+	for i in VARIANTS.size():
+		var key: String = VARIANTS[i][0]
+		btns[i].pressed.connect(func():
+			variant = key
+			_store()
+			paint.call())
+	paint.call()
 
 
 func _make_tile(c: Dictionary, pos: Vector2) -> void:
@@ -236,7 +278,7 @@ func _config() -> Dictionary:
 			continue
 		seats.append({"color": c["id"], "ai": m == 1, "name": c["name"], "level": level})
 	var speeds := [1.1, 0.6, 0.2, 0.0]
-	return {"seats": seats, "ai_level": level, "ai_delay": speeds[speed], "short": short, "castillo_hidden": cas_hidden}
+	return {"seats": seats, "ai_level": level, "ai_delay": speeds[speed], "short": short, "castillo_hidden": cas_hidden, "variant": variant}
 
 
 func _on_start() -> void:

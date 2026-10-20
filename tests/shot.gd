@@ -60,7 +60,7 @@ func _run() -> void:
 		{"color": 0, "ai": false, "name": "Stefano", "level": 1},
 		{"color": 1, "ai": true, "name": "Verde", "level": 1},
 		{"color": 3, "ai": true, "name": "Giallo", "level": 1},
-		{"color": 4, "ai": true, "name": "Blu", "level": 1}], "ai_delay": 0.0, "seed": 4242})
+		{"color": 4, "ai": true, "name": "Blu", "level": 1}], "ai_delay": 0.0, "seed": 4242, "variant": OS.get_cmdline_user_args()[1] if OS.get_cmdline_user_args().size() > 1 else "base"})
 	await wait(10)
 	var frames := 0
 	while frames < 20000:

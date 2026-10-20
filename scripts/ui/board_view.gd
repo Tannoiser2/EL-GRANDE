@@ -54,8 +54,10 @@ func _gui_input(ev: InputEvent) -> void:
 
 ## Il punto cade davvero sulla terra della regione? (le aree di mare lontane non contano)
 func _region_hit(r: int, p: Vector2) -> bool:
-	if r == CAS:
-		return true
+	if r == CAS or r == D.SHIP_G:
+		return eng != null and (r == CAS or eng.grandissimo)
+	if eng != null and not (r in eng.map_regions()):
+		return false
 	for a in D.ANCHORS[r]:
 		if p.distance_to(a) < 110:
 			return true
@@ -88,16 +90,19 @@ func _draw() -> void:
 	for m in 2:
 		if eng.mobile[m] >= 0:
 			_draw_mobile(m, D.REGIONS[eng.mobile[m]]["box"])
+	# Grandissimo: Portogallo, nave, prigione, Caballeros neri dell'Inquisitore
+	if eng.grandissimo:
+		_draw_grandissimo(counts)
 	# Castillo
 	_draw_castillo(counts[CAS])
 	# Caballeros nelle regioni
-	for r in 9:
+	for r in eng.map_regions():
 		_draw_cabs(r, counts[r])
 	# Grandi
 	var by_reg := {}
 	for s in eng.n:
 		var g: int = eng.grande[s]
-		if g >= 0:
+		if g >= 0 and g != CAS:
 			if not by_reg.has(g):
 				by_reg[g] = []
 			by_reg[g].append(s)
@@ -108,10 +113,22 @@ func _draw() -> void:
 			var c := bp(Vector2(rr.position.x + 10 + i * 38, rr.position.y + 18))
 			UI.draw_cube(self, c + Vector2(16, 0), 34 * sc, UI.pcol(eng.players[lst[i]]["color"]), Color(0.1, 0.06, 0, 0.95))
 			draw_arc(c + Vector2(16, 0), 22 * sc, 0, TAU, 24, Color(1, 0.85, 0.35, 0.9), 2.0, true)
-	# Re
+	# Re (con la Rivoluzione è il Grande scelto: la pedina del Re resta nel Castillo)
 	var kr: Rect2 = D.REGIONS[eng.king]["rect"]
 	var kc := bp(kr.position + Vector2(kr.size.x - 8, -6))
-	_draw_king(kc)
+	if eng.revolution >= 0:
+		_draw_king(bp(D.CASTILLO_POS + Vector2(52, -40)))
+		draw_texture_rect(crown, Rect2(kc + Vector2(-22, -10) * sc, Vector2(44, 30) * sc), false)
+	else:
+		_draw_king(kc)
+	# Grandi nel Castillo (Cospirazione)
+	var gi := 0
+	for s in eng.n:
+		if eng.grande[s] == CAS:
+			var gc := bp(D.CASTILLO_POS + Vector2(-60 + gi * 34, 62))
+			UI.draw_cube(self, gc, 30 * sc, UI.pcol(eng.players[s]["color"]), Color(0.1, 0.06, 0, 0.95))
+			draw_arc(gc, 20 * sc, 0, TAU, 24, Color(1, 0.85, 0.35, 0.9), 2.0, true)
+			gi += 1
 	# segna-turno
 	if eng.cur_round > 0:
 		UI.draw_cube(self, bp(Vector2(D.ROUND_X - 4, D.ROUND_Y[eng.cur_round])), 20 * sc, Color("#1a1a1a"), Color(1, 0.9, 0.6, 0.9))
@@ -137,7 +154,7 @@ func _draw_cabs(r: int, counts: Array) -> void:
 		return
 	var cols := 3 if present.size() > 2 else present.size()
 	var cell := Vector2(rr.size.x / 3.0, 50)
-	var y0 := rr.position.y + 52
+	var y0 := rr.position.y + minf(52.0, rr.size.y * 0.45)
 	for i in present.size():
 		var s: int = present[i]
 		var row := i / 3
@@ -160,6 +177,42 @@ func _badge(c: Vector2, s: int, q: int, hidden := false) -> void:
 	var p := c + Vector2(10 * sc, 16 * sc)
 	draw_string_outline(f, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, Color(0, 0, 0, 0.9))
 	draw_string(f, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
+
+
+func _draw_grandissimo(counts: Array) -> void:
+	# segnapunti del Portogallo (5 / – / –)
+	var pb: Texture2D = UI.tex("res://assets/grandissimo/portugal_board.jpg")
+	if not (D.PORTUGAL in eng.mobile):
+		var c := bp(D.REGIONS[D.PORTUGAL]["box"])
+		draw_texture_rect(pb, Rect2(c - Vector2(52, 20) * sc, Vector2(104, 40) * sc), false)
+	# nave
+	var sp := bp(D.SHIP_G_POS)
+	var st: Texture2D = UI.tex("res://assets/grandissimo/ship_token.jpg")
+	draw_circle(sp, 48 * sc, Color(0.1, 0.2, 0.35, 0.55))
+	draw_texture_rect(st, Rect2(sp - Vector2(42, 35) * sc, Vector2(84, 70) * sc), false)
+	draw_arc(sp, 48 * sc, 0, TAU, 32, Color(0.85, 0.75, 0.5, 0.9), 2.0, true)
+	var present := []
+	for s in eng.n:
+		if counts[D.SHIP_G][s] > 0:
+			present.append(s)
+	for i in present.size():
+		_badge(sp + Vector2(-40 + i * 34, 52) * sc, present[i], counts[D.SHIP_G][present[i]])
+	# prigione
+	var jp := bp(D.JAIL_POS)
+	draw_texture_rect(UI.tex("res://assets/grandissimo/jail.jpg"), Rect2(jp - Vector2(44, 45) * sc, Vector2(88, 90) * sc), false)
+	draw_rect(Rect2(jp - Vector2(44, 45) * sc, Vector2(88, 90) * sc), Color("#3a2414"), false, 2.0)
+	present = []
+	for s in eng.n:
+		if counts[D.JAIL][s] > 0:
+			present.append(s)
+	for i in present.size():
+		_badge(jp + Vector2(-30 + (i % 3) * 30, -20 + (i / 3) * 34) * sc, present[i], counts[D.JAIL][present[i]])
+	# Caballeros neri dell'Inquisitore
+	if eng.inq_pos >= 0:
+		var rr: Rect2 = D.REGIONS[eng.inq_pos]["rect"]
+		var c2 := bp(rr.position + Vector2(18, rr.size.y - 14))
+		UI.draw_cube(self, c2, 22 * sc, Color("#151515"), Color(0.9, 0.85, 0.75, 0.9))
+		UI.draw_cube(self, c2 + Vector2(20, 4) * sc, 22 * sc, Color("#151515"), Color(0.9, 0.85, 0.75, 0.9))
 
 
 func _draw_castillo(counts: Array) -> void:

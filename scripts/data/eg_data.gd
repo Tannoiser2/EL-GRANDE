@@ -1,10 +1,22 @@
 class_name EGData
 extends RefCounted
-## Dati fissi di El Grande (gioco base): regioni, confini, valori, carte potere e carte azione.
+## Dati fissi di El Grande: regioni, confini, valori, carte potere e carte azione (gioco base ed espansioni).
 ## Le coordinate sono in "unità tabellone" (immagine del tabellone ridotta a 1400 x 1025).
 
 const BOARD_SIZE := Vector2(1400, 1025)
 const CASTILLO := 9
+## Regioni aggiunte dalle espansioni (indici fissi, le righe di cab esistono sempre).
+const PORTUGAL := 10
+const FRANCE := 11
+const SHIP_C := 12          # nave delle Colonie (si valuta)
+const AMERICA := 13
+const MEDIT := 14
+const SHIP_G := 15          # nave di Grandissimo (solo transito, non si valuta)
+const JAIL := 16
+const NREG := 17
+## Regioni costiere (Grandissimo / Colonie).
+const COASTAL := [0, 1, 3, 6, 7, 8, 10, 11]
+const INLAND := [2, 4, 5]
 
 ## Regioni nell'ordine del tabellone (è anche l'ordine della valutazione generale).
 ## rect: zona dove si dispongono i Caballeros; box: casella del segna-punti stampato.
@@ -19,6 +31,13 @@ const REGIONS := [
 	{"id": 7, "name": "Granada", "vals": [6, 3, 1], "rect": Rect2(696, 777, 160, 138), "box": Vector2(777, 707), "label": Vector2(776, 754)},
 	{"id": 8, "name": "Valencia", "vals": [5, 3, 1], "rect": Rect2(948, 554, 162, 139), "box": Vector2(990, 447), "label": Vector2(980, 489)},
 	{"id": 9, "name": "Castillo", "vals": [5, 3, 1], "rect": Rect2(1118, 640, 124, 128), "box": Vector2(1220, 590), "label": Vector2(1180, 790)},
+	{"id": 10, "name": "Portogallo", "vals": [5, 0, 0], "rect": Rect2(246, 698, 124, 100), "box": Vector2(318, 720), "label": Vector2(330, 765)},
+	{"id": 11, "name": "Francia", "vals": [3, 0, 0], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
+	{"id": 12, "name": "Nave", "vals": [3, 0, 0], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
+	{"id": 13, "name": "America", "vals": [4, 2, 0], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
+	{"id": 14, "name": "Mediterraneo", "vals": [4, 2, 1], "rect": Rect2(0, 0, 10, 10), "box": Vector2.ZERO, "label": Vector2.ZERO},
+	{"id": 15, "name": "Nave", "vals": [0, 0, 0], "rect": Rect2(78, 92, 130, 80), "box": Vector2.ZERO, "label": Vector2(140, 180)},
+	{"id": 16, "name": "Prigione", "vals": [0, 0, 0], "rect": Rect2(130, 730, 92, 92), "box": Vector2.ZERO, "label": Vector2(176, 836)},
 ]
 
 const ADJ := [
@@ -31,6 +50,9 @@ const ADJ := [
 	[5, 7],
 	[6, 5, 8],
 	[3, 2, 5, 7],
+	[],
+	[0, 4, 5, 6],
+	[2, 3],
 ]
 
 ## Punti per il clic sulla mappa: vince la regione del punto più vicino.
@@ -44,7 +66,11 @@ const ANCHORS := [
 	[Vector2(450, 700), Vector2(520, 720), Vector2(560, 800), Vector2(480, 760), Vector2(600, 700), Vector2(420, 660), Vector2(520, 880)],
 	[Vector2(700, 700), Vector2(780, 760), Vector2(850, 800), Vector2(700, 820), Vector2(650, 780), Vector2(900, 840), Vector2(760, 880)],
 	[Vector2(900, 500), Vector2(960, 500), Vector2(1000, 560), Vector2(900, 620), Vector2(970, 650), Vector2(1040, 450), Vector2(960, 720)],
+	[],
+	[Vector2(300, 760), Vector2(360, 775), Vector2(330, 720), Vector2(280, 735), Vector2(390, 740)],
 ]
+const SHIP_G_POS := Vector2(143, 132)
+const JAIL_POS := Vector2(176, 776)
 const CASTILLO_POS := Vector2(1180, 705)
 
 ## Scala del successo: [punteggio, x, y] lungo il bordo (si interpola fra i punti).
@@ -122,8 +148,42 @@ const CARDS := [
 	{"pile": 4, "key": "score_secret", "art": "p4_10", "title": "Assegnazione di punti", "text": "Ognuno sceglie in segreto una regione: si valutano quelle scelte da un solo giocatore."},
 	# ---- pila 5
 	{"pile": 5, "key": "king", "art": "p5_0", "title": "Il Re", "text": "Metti il Re in una regione qualunque."},
+	# ---- Grandissimo: pila 6 (19 carte) e pila 7 (Regina / Giullare)
+	{"pile": 6, "n": 3, "sym": "jail", "key": "gi_take", "title": "Grande Inquisitore", "text": "Prendi il Grande Inquisitore nella tua corte fino alla prossima valutazione generale: a ogni tuo turno puoi spostare i suoi 2 Caballeros neri in una regione confinante e rimandare alle province un Caballero avversario che si trova lì."},
+	{"pile": 6, "n": 3, "sym": "ship", "key": "revolution", "title": "Rivoluzione", "text": "Il Re va nel Castillo. Scegli un Grande: diventa il nuovo Re e la sua regione è la regione del Re. Dopo la prossima valutazione generale il Re va in Portogallo."},
+	{"pile": 6, "n": 3, "sym": "jail", "key": "stop", "title": "Azione interrotta", "text": "Tutti quelli che giocano dopo di te in questo round non possono eseguire l'azione speciale."},
+	{"pile": 6, "n": 3, "sym": "jail", "key": "score_inland", "title": "Punteggio speciale", "text": "Si valutano tutte le regioni interne (Aragona, Vecchia e Nuova Castiglia)."},
+	{"pile": 6, "n": 3, "sym": "", "key": "conspiracy", "title": "Cospirazione", "text": "Metti tutti i Grandi avversari nel Castillo. Chi ha il Grande nel Castillo e la maggioranza lì prende il bonus del Grande; alla valutazione generale il Grande segue i suoi Caballeros."},
+	{"pile": 6, "n": 3, "sym": "ship", "key": "province", "title": "Province", "text": "Questo turno piazzi i Caballeros prendendoli direttamente dalle province invece che dalla corte."},
+	{"pile": 6, "n": 4, "sym": "ship", "key": "storm", "title": "Assalto al Castillo", "text": "Manda nel Castillo 2 Caballeros di ogni giocatore: quelli degli avversari li prendi dalle regioni, i tuoi dalla corte."},
+	{"pile": 6, "n": 4, "sym": "ship", "key": "last_word", "title": "L'ultima parola", "text": "In questo round puoi giocare il resto del turno per ultimo."},
+	{"pile": 6, "n": 4, "sym": "jail", "key": "alliance", "title": "Alleanza", "text": "Scegli 2 regioni: alla prossima valutazione generale si valutano insieme, sommando Caballeros e punti. Valgono i bonus del Re e del Grande."},
+	{"pile": 6, "n": 6, "sym": "jail", "key": "extra6", "title": "Rinforzi", "text": "Puoi piazzare fino a 6 Caballeros dalla corte."},
+	{"pile": 6, "n": 1, "sym": "ship", "key": "double_swap", "title": "Doppio scambio", "text": "Sposta o piazza entrambi i segnapunti mobili."},
+	{"pile": 6, "n": 2, "sym": "", "key": "incognito", "title": "Re in incognito", "text": "Scegli in segreto una regione. In qualunque tuo turno successivo puoi rivelarla e mettervi il Re."},
+	{"pile": 6, "n": 2, "sym": "jail", "key": "espionage", "title": "Spionaggio", "text": "Alla prossima valutazione generale non usi il disco: sposti i tuoi Caballeros del Castillo dove vuoi dopo che gli altri hanno mosso i loro."},
+	{"pile": 6, "n": 2, "sym": "jail", "key": "free_choice", "title": "Scelta libera", "text": "Alla prossima valutazione generale, svuotato il Castillo, puoi spostare 2 tuoi Caballeros in altre regioni."},
+	{"pile": 6, "n": 3, "sym": "jail", "key": "double_turn", "title": "Doppio turno", "text": "Prendi un'altra carta azione scoperta: puoi usarne l'azione speciale subito o in un tuo turno successivo."},
+	{"pile": 6, "n": 2, "sym": "ship", "key": "score_coastal", "title": "Punteggio speciale", "text": "Si valutano tutte le regioni costiere, Portogallo compreso."},
+	{"pile": 6, "n": 2, "sym": "ship", "key": "boycott", "title": "Boicottaggio", "text": "Scegli in segreto una regione: non riceve punti alla prossima valutazione generale."},
+	{"pile": 6, "n": 2, "sym": "ship", "key": "evict_castillo", "title": "Ordine di sgombero", "text": "Gli avversari riportano nella loro corte tutti i loro Caballeros del Castillo."},
+	{"pile": 6, "n": 2, "sym": "ship", "key": "score_courts", "title": "Punteggio speciale", "text": "Le corti dei giocatori si valutano come una regione (6 / 5 / 1)."},
+	{"pile": 7, "n": 3, "sym": "", "key": "queen_jester", "title": "7ª Pila", "text": "Prendi la Regina o il Giullare nella tua corte."},
 ]
+const QUEEN_CARD := 64
+const COURTS_VALS := [6, 5, 1]
 const KING_CARD := 44
+
+
+## Caballeros che la carta permette di piazzare.
+static func card_n(ci: int) -> int:
+	return int(CARDS[ci].get("n", CARDS[ci]["pile"]))
+
+
+static func card_tex_path(ci: int) -> String:
+	if ci >= 45:
+		return "res://assets/grandissimo/c%d.jpg" % ci
+	return "res://assets/actions_it/c%d.jpg" % ci
 
 
 static func pile_cards(p: int) -> Array:
@@ -156,6 +216,8 @@ static func track_pos(score: int) -> Vector2:
 static func region_at(p: Vector2) -> int:
 	if p.distance_to(CASTILLO_POS) < 75:
 		return CASTILLO
+	if p.distance_to(SHIP_G_POS) < 70:
+		return SHIP_G
 	var best := -1
 	var bd := 140.0
 	for r in ANCHORS.size():

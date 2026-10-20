@@ -39,19 +39,37 @@ func _ready() -> void:
 		else:
 			main.show_menu())
 	hb.add_child(close)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	vb.add_child(tabs)
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 30)
 	vb.add_child(cols)
 	var left := RichTextLabel.new()
 	left.bbcode_enabled = true
-	left.custom_minimum_size = Vector2(830, 930)
-	left.text = _rules_text()
+	left.custom_minimum_size = Vector2(830, 880)
 	cols.add_child(left)
 	var right := RichTextLabel.new()
 	right.bbcode_enabled = true
-	right.custom_minimum_size = Vector2(820, 930)
-	right.text = _cards_text()
+	right.custom_minimum_size = Vector2(820, 880)
 	cols.add_child(right)
+	var pages := [["Gioco base", _rules_text(), _cards_text()], ["Grandissimo", _grandissimo_text(), _grandissimo_cards()]]
+	var btns := []
+	for i in pages.size():
+		var b := UI.button(pages[i][0], 220, 44, 21)
+		tabs.add_child(b)
+		btns.append(b)
+	var show := func(k: int):
+		left.text = pages[k][1]
+		right.text = pages[k][2]
+		left.scroll_to_line(0)
+		right.scroll_to_line(0)
+		for i in btns.size():
+			btns[i].add_theme_stylebox_override("normal", UI.panel_style(UI.GOLD if i == k else Color("#24170d"), UI.GOLD if i == k else Color("#4a3a2a"), 2, 4))
+			btns[i].add_theme_color_override("font_color", UI.DARK if i == k else Color("#e8dcc0"))
+	for i in btns.size():
+		btns[i].pressed.connect(func(): show.call(i))
+	show.call(0)
 
 
 func _h(t: String) -> String:
@@ -109,4 +127,35 @@ func _cards_text() -> String:
 			s += "• [b]%s[/b]%s: %s\n" % [cd["title"], " (×%d)" % q if q > 1 else "", cd["text"]]
 		s += "\n"
 	s += "[color=#b9a988][i]Gli intrighi muovono Caballeros già sul tabellone (mai dentro o fuori dalla regione del Re; dal Castillo non si esce fino alla valutazione generale). Il Veto! si tiene davanti a sé e annulla un'azione speciale altrui in questo round o nel successivo.[/i][/color]\n"
+	return s
+
+
+func _grandissimo_text() -> String:
+	var s := _h("Grandissimo")
+	s += "Si gioca come El Grande con queste aggiunte.\n\n"
+	s += _h("Due pile in più")
+	s += "Ogni round si scoprono 7 carte azione: le solite cinque, la prima della 6ª pila (19 carte nuove) e la carta della 7ª pila (la Regina o il Giullare), che come la carta del Re torna ogni round. Il numero di Caballeros da piazzare è quello disegnato sulla carta.\n\n"
+	s += _h("Portogallo")
+	s += "Una regione in più, confinante con Galizia, Vecchia e Nuova Castiglia e Siviglia. Si valuta 5 punti solo per il primo (un segnapunti mobile può coprirlo). Il Re e i Grandi possono andarci; non si sceglie col disco segreto.\n\n"
+	s += _h("Simbolo nave")
+	s += "Chi prende una carta col simbolo della nave può prendere un gettone nave (uno solo a testa; se sono finiti, lo prende a un altro giocatore). Con il gettone può piazzare i Caballeros della corte sulla nave, ovunque sia il Re; all'inizio del suo turno li sbarca in una regione costiera (anche il Portogallo, non quella del Re). Sulla nave non si fanno punti.\n\n"
+	s += _h("Simbolo prigione")
+	s += "Chi prende una carta col simbolo della prigione può mandare in prigione un Caballero qualsiasi da una regione (non quella del Re). Chi prende la carta del Re può liberare tutti i prigionieri in una sola regione, oppure lasciarli dentro.\n\n"
+	s += _h("Regina e Giullare")
+	s += "La carta della 7ª pila dà la Regina o il Giullare (se ne è rimasto uno solo a lato si prende quello; se li hanno altri due giocatori, si sceglie a chi toglierlo). Si usano a ogni proprio turno, anche quello in cui si prendono:\n"
+	s += "• [b]Regina[/b]: un Caballero in più dalla corte a una regione vicina al Re, oppure dalle province alla corte.\n"
+	s += "• [b]Giullare[/b]: regali a un altro giocatore un tuo Caballero delle province; lui lo mette dove vuole sulla mappa all'inizio del suo turno.\n\n"
+	s += _h("Grande Inquisitore")
+	s += "All'inizio due Caballeros neri vanno in una regione a caso: non sono di nessuno e non contano mai nelle valutazioni. Chi prende la carta Grande Inquisitore lo tiene fino alla prossima valutazione generale e, a ogni suo turno, può spingere i Caballeros neri in una regione confinante e rimandare alle province un Caballero avversario che si trova lì.\n\n"
+	s += _h("Interpretazioni")
+	s += "[color=#b9a988][i]Le note di Grandissimo lasciano alcuni punti aperti: qui il Giullare regala un Caballero proprio, la nave sbarca tutti i Caballeros nella stessa regione, la Regina, il Giullare e l'Inquisitore si usano alla fine del proprio turno, le carte tenute col Doppio turno si possono usare a fine turno nei round successivi.[/i][/color]\n"
+	return s
+
+
+func _grandissimo_cards() -> String:
+	var s := _h("Le carte della 6ª e 7ª pila")
+	for ci in D.pile_cards(6) + D.pile_cards(7):
+		var cd: Dictionary = D.CARDS[ci]
+		var sym: String = {"ship": " · nave", "jail": " · prigione"}.get(cd.get("sym", ""), "")
+		s += "• [b]%s[/b] [color=#b9a988](%d Caballeros%s)[/color]: %s\n" % [cd["title"], D.card_n(ci), sym, cd["text"]]
 	return s

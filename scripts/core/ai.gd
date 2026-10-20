@@ -31,7 +31,7 @@ func decide(e: EGEngine, s: int, req: Dictionary):
 		"action":
 			return _action(req)
 		"place":
-			return _place(req["n"], req["targets"])
+			return _place(req["n"], req["targets"], -1, req.get("from_prov", false))
 		"moves":
 			return _moves(req["spec"])
 		"take":
@@ -52,12 +52,17 @@ func _noise() -> float:
 ## Peso delle maggioranze sul tabellone rispetto ai punti già fatti: più è lontana la prossima
 ## valutazione generale, meno le posizioni attuali sono sicure.
 var wb := 1.0
+var regs: Array = []             # regioni della mappa che si valutano
+var regs_cas: Array = []         # le stesse più il Castillo
 ## Valore di un Caballero a corte (cala verso la fine: a fine partita non serve più).
 var wc := 0.32
 var om := 0.55
 
 
 func _prepare() -> void:
+	regs = eng.map_regions()
+	regs_cas = regs.duplicate()
+	regs_cas.append(CAS)
 	var rem := 0
 	var k := 9
 	for x in [3, 6, 9]:
@@ -112,9 +117,7 @@ func region_term(r: int, p: int) -> float:
 ## Quanto renderebbero i q Caballeros di p nel Castillo, spostati nella regione migliore.
 func _redeploy(p: int, q: int) -> float:
 	var best := 0.0
-	for r in 9:
-		if r == eng.king:
-			continue
+	for r in eng.disk_regions():
 		var pts0 := eng.region_points(r)
 		var b0: float = pts0.get(p, 0) - _oth(pts0, p)
 		eng.cab[r][p] += q
@@ -141,7 +144,7 @@ func global_term(p: int) -> float:
 
 func evaluate(p: int) -> float:
 	var t := global_term(p)
-	for r in 10:
+	for r in regs_cas:
 		t += region_term(r, p)
 	return t
 
@@ -149,7 +152,8 @@ func evaluate(p: int) -> float:
 func snap() -> Dictionary:
 	return {"cab": eng.cab.duplicate(true), "court": eng.court.duplicate(), "prov": eng.prov.duplicate(),
 		"score": eng.score.duplicate(), "grande": eng.grande.duplicate(), "king": eng.king,
-		"mobile": eng.mobile.duplicate(), "hand": eng.hand.duplicate(true), "discard": eng.discard.duplicate(true)}
+		"mobile": eng.mobile.duplicate(), "hand": eng.hand.duplicate(true), "discard": eng.discard.duplicate(true),
+		"inq_pos": eng.inq_pos, "revolution": eng.revolution}
 
 
 func restore(sn: Dictionary) -> void:
@@ -162,15 +166,26 @@ func restore(sn: Dictionary) -> void:
 	eng.mobile = sn["mobile"].duplicate()
 	eng.hand = sn["hand"].duplicate(true)
 	eng.discard = sn["discard"].duplicate(true)
+	eng.inq_pos = sn["inq_pos"]
+	eng.revolution = sn["revolution"]
 
 
 # ================================================================ piazzamento
 
 ## Piazzamento goloso, un Caballero alla volta: {regione: quanti}.
-func _place(q: int, targets: Array, p := -1) -> Dictionary:
+func _place(q: int, targets: Array, p := -1, from_prov := false) -> Dictionary:
 	if p < 0:
 		p = me
 	var out := {}
+	if from_prov:
+		# si simula portando prima i Caballeros a corte
+		var k := mini(q, eng.prov[p])
+		eng.prov[p] -= k
+		eng.court[p] += k
+		var d := _place(k, targets, p)
+		eng.prov[p] += k
+		eng.court[p] -= k
+		return d
 	q = mini(q, eng.court[p])
 	for i in q:
 		var best := -1
@@ -217,25 +232,22 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 		var best = null
 		var bv := 0.05
 		# le due regioni cambiano indipendentemente: si calcolano a parte il togliere e l'aggiungere
-		var base := []
-		for r in 10:
-			base.append(region_term(r, p) if r != eng.king else 0.0)
+		var base := {}
+		var srcs: Array = eng.move_sources()
+		var dests: Array = eng.move_dests()
+		for r in dests:
+			base[r] = region_term(r, p)
 		var add := {}
 		for q in eng.n:
 			if (q == p and own >= int(spec["own"])) or (q != p and foe >= int(spec["foe"])):
 				continue
-			var row := []
-			for b in 10:
-				if b == eng.king:
-					row.append(-INF)
-					continue
+			var row := {}
+			for b in dests:
 				eng.cab[b][q] += 1
-				row.append(region_term(b, p) - base[b])
+				row[b] = region_term(b, p) - base[b]
 				eng.cab[b][q] -= 1
 			add[q] = row
-		for a in 9:
-			if a == eng.king:
-				continue
+		for a in srcs:
 			for q in eng.n:
 				if eng.cab[a][q] <= 0 or not add.has(q):
 					continue
@@ -244,9 +256,9 @@ func _moves(spec: Dictionary, p := -1, apply := false) -> Array:
 				eng.cab[a][q] -= 1
 				var da: float = region_term(a, p) - base[a]
 				eng.cab[a][q] += 1
-				var row: Array = add[q]
-				for b in 10:
-					if b == a or b == eng.king:
+				var row: Dictionary = add[q]
+				for b in dests:
+					if b == a:
 						continue
 					var v: float = da + row[b] + _noise() * 0.3
 					if v > bv:
@@ -355,6 +367,8 @@ func _region_value(ctx: String, r: int, req: Dictionary) -> float:
 			return v
 		"advisor", "king":
 			eng.king = r
+			if eng.revolution >= 0:
+				eng.grande[eng.revolution] = r
 			return evaluate(me) + 0.15 * _adj_potential(r)
 		"grande":
 			eng.grande[me] = r
@@ -368,10 +382,52 @@ func _region_value(ctx: String, r: int, req: Dictionary) -> float:
 				eng.cab[int(req["from"])][me] = 0
 			else:
 				eng.cab[CAS][me] = 0
-			if r == eng.king or (ctx == "evict_dest" and r == int(req["from"])):
+			if ctx == "castillo_dest" and eng.grande[me] == CAS:
+				eng.grande[me] = r
+			if eng.taboo(r) or (ctx == "evict_dest" and r == int(req["from"])):
 				eng.court[me] += q
 			else:
 				eng.cab[r][me] += q
+			return evaluate(me)
+		"storm":
+			var victim := int(req["victim"])
+			eng.cab[r][victim] -= 1
+			eng.cab[CAS][victim] += 1
+			return evaluate(me)
+		"incognito":
+			return _region_value("king", r, req) - 0.3
+		"boycott":
+			# si toglie la regione dove gli avversari guadagnerebbero di più
+			return -_gain_value(eng.region_points(r), me)
+		"alliance":
+			var best := -INF
+			for b in eng.region_cards_free():
+				if b != r:
+					best = maxf(best, _alliance_gain(r, b))
+			return best
+		"alliance2":
+			return _alliance_gain(int(req["first"]), r)
+		"disembark":
+			var q: int = eng.cab[eng.SHIP][me]
+			eng.cab[eng.SHIP][me] = 0
+			eng.cab[r][me] += q
+			return evaluate(me)
+		"jester_place":
+			eng.cab[r][int(req["giver"])] += 1
+			return evaluate(me)
+		"jail", "inquisitor":
+			var best := -INF
+			for t in eng.n:
+				if t == me or eng.cab[r][t] <= 0:
+					continue
+				eng.cab[r][t] -= 1
+				best = maxf(best, evaluate(me))
+				eng.cab[r][t] += 1
+			return best if best > -INF else evaluate(me) - 1.0
+		"pardon":
+			for t in eng.n:
+				eng.cab[r][t] += eng.cab[eng.JAIL][t]
+				eng.cab[eng.JAIL][t] = 0
 			return evaluate(me)
 		"exile":
 			var two: bool = req.get("two", false)
@@ -395,6 +451,21 @@ func _region_value(ctx: String, r: int, req: Dictionary) -> float:
 	return evaluate(me)
 
 
+## Quanto guadagno (rispetto agli altri) se a e b si valutano insieme invece che separate.
+func _alliance_gain(a: int, b: int) -> float:
+	var cnt := []
+	for t in eng.n:
+		cnt.append(eng.cab[a][t] + eng.cab[b][t])
+	var va := eng.vals(a)
+	var vb := eng.vals(b)
+	var comb := eng.points_for(cnt, [va[0] + vb[0], va[1] + vb[1], va[2] + vb[2]], false, [a, b])
+	var sep := eng.region_points(a)
+	var pb := eng.region_points(b)
+	for t in pb:
+		sep[t] = sep.get(t, 0) + pb[t]
+	return _gain_value(comb, me) - _gain_value(sep, me)
+
+
 func _gain_value(pts: Dictionary, p: int) -> float:
 	var mine: float = pts.get(p, 0)
 	var omax := 0.0
@@ -411,7 +482,7 @@ func _gain_value(pts: Dictionary, p: int) -> float:
 func _best_score_region(p: int) -> int:
 	var best := 0
 	var bv := -INF
-	for r in 9:
+	for r in regs:
 		var v := _gain_value(eng.region_points(r), p)
 		if v > bv:
 			bv = v
@@ -422,7 +493,7 @@ func _best_score_region(p: int) -> int:
 ## Quanto è utile, per il piazzamento futuro, che il Re stia in r (regioni confinanti dove conviene entrare).
 func _adj_potential(r: int) -> float:
 	var t := 0.0
-	for a in D.ADJ[r]:
+	for a in eng.adj(r):
 		var before := region_term(a, me)
 		eng.cab[a][me] += 1
 		t = maxf(t, region_term(a, me) - before)
@@ -439,8 +510,8 @@ func _sim_evict(r: int) -> void:
 		eng.cab[r][t] = 0
 		var best := -1
 		var bv := -INF
-		for d in 9:
-			if d == r or d == eng.king:
+		for d in regs:
+			if d == r or eng.taboo(d):
 				continue
 			eng.cab[d][t] += q
 			var v := region_term(d, t)
@@ -488,8 +559,8 @@ func _pick(req: Dictionary) -> int:
 			restore(sn)
 			var b := -INF
 			var srcs := []
-			for r in 9:
-				if r != eng.king and eng.cab[r][me] > 0:
+			for r in regs:
+				if not eng.taboo(r) and eng.cab[r][me] > 0:
 					srcs.append(r)
 			for r in srcs:
 				b = maxf(b, _region_value("allown", r, {}))
@@ -515,6 +586,63 @@ func _pick(req: Dictionary) -> int:
 				if int(opts[i]["v"]) > int(opts[best]["v"]):
 					best = i
 			return best
+		"last_word", "ship_take":
+			return 1
+		"double_now", "use_saved":
+			var sn := snap()
+			var base := evaluate(me)
+			var v := _special_value(int(req["card"]))
+			restore(sn)
+			var last: bool = eng.round_i >= eng.rounds.size() - 1
+			return 1 if (v > base + 0.6 or last) else 0
+		"incognito_reveal":
+			var sn := snap()
+			var base := evaluate(me)
+			var v := _region_value("king", int(req["region"]), req)
+			restore(sn)
+			return 1 if v > base + 0.6 else 0
+		"revolution", "jail_victim", "inq_victim":
+			var sn := snap()
+			var best := 0
+			var bv := -INF
+			for i in opts.size():
+				var t := int(opts[i]["p"])
+				var v := evaluate(me) - 0.01
+				if t >= 0:
+					if ctx == "revolution":
+						eng.king = eng.grande[t]
+						eng.revolution = t
+					elif ctx == "jail_victim" or ctx == "inq_victim":
+						var r := int(req["region"])
+						eng.cab[r][t] -= 1
+					v = evaluate(me) + (-3.0 if t == me else 0.0)
+				restore(sn)
+				if v > bv:
+					bv = v
+					best = i
+			return best
+		"character":
+			for i in opts.size():
+				if opts[i]["c"] == "q":
+					return i
+			return 0
+		"queen":
+			for i in opts.size():
+				if str(opts[i].get("k", "")) == "place":
+					return i
+			return opts.size() - 1
+		"jester":
+			# lo regala a chi ha meno punti (lo piazzerà dove mi danneggia di meno)
+			var best := opts.size() - 1
+			var low := 999
+			for i in opts.size():
+				var t := int(opts[i]["p"])
+				if t >= 0 and eng.score[t] < low:
+					low = eng.score[t]
+					best = i
+			return best
+		"ship_steal":
+			return 0
 	return 0
 
 
@@ -547,8 +675,8 @@ func _special_value(ci: int) -> float:
 				best = evaluate(me)
 				best_sn = snap()
 				restore(sn)
-			for r in 9:
-				if r == eng.king or eng.cab[r][me] <= 0:
+			for r in regs:
+				if eng.taboo(r) or eng.cab[r][me] <= 0:
 					continue
 				var v := _region_value("allown", r, {})
 				if v > best:
@@ -563,8 +691,8 @@ func _special_value(ci: int) -> float:
 				# l'avversario sacrifica la regione che gli costa meno
 				var best := -1
 				var bv := -INF
-				for r in 9:
-					if r == eng.king or eng.cab[r][t] < (2 if key == "remove2" else 1):
+				for r in regs:
+					if eng.taboo(r) or eng.cab[r][t] < (2 if key == "remove2" else 1):
 						continue
 					var q: int = mini(2, eng.cab[r][t]) if key == "remove2" else eng.cab[r][t]
 					var before := region_term(r, t)
@@ -582,8 +710,8 @@ func _special_value(ci: int) -> float:
 			for t in eng.n:
 				var best := -1
 				var bv := -INF
-				for r in 9:
-					if r == eng.king or eng.cab[r][t] <= 0:
+				for r in regs:
+					if eng.taboo(r) or eng.cab[r][t] <= 0:
 						continue
 					eng.cab[r][t] -= 1
 					var v := evaluate(me)
@@ -612,8 +740,8 @@ func _special_value(ci: int) -> float:
 				while q > 0:
 					var best := -1
 					var bv := -INF
-					for r in 9:
-						if r == eng.king or eng.cab[r][t] <= 0:
+					for r in regs:
+						if eng.taboo(r) or eng.cab[r][t] <= 0:
 							continue
 						var before := region_term(r, t)
 						eng.cab[r][t] -= 1
@@ -630,7 +758,7 @@ func _special_value(ci: int) -> float:
 		"score_any":
 			var best := 0
 			var bv := -INF
-			for r in 10:
+			for r in regs_cas:
 				var v := _gain_value(eng.region_points(r), me)
 				if v > bv:
 					bv = v
@@ -638,13 +766,13 @@ func _special_value(ci: int) -> float:
 			_sim_score(best)
 		"score4", "score5", "score67":
 			var want: Array = {"score4": [4], "score5": [5], "score67": [6, 7]}[key]
-			for r in 9:
+			for r in regs:
 				if int(eng.vals(r)[0]) in want:
 					_sim_score(r)
 		"score_most", "score_least":
 			var best := []
 			var bv := -1 if key == "score_most" else 999
-			for r in 9:
+			for r in regs:
 				var t := eng.total_in(r)
 				if key == "score_least" and t == 0:
 					continue
@@ -656,7 +784,7 @@ func _special_value(ci: int) -> float:
 			for r in best:
 				_sim_score(r)
 		"score_first":
-			for r in 9:
+			for r in regs:
 				_sim_score(r, true)
 		"score_castillo":
 			_sim_score(CAS)
@@ -670,11 +798,7 @@ func _special_value(ci: int) -> float:
 			var bv := -INF
 			var sn := snap()
 			for m in 2:
-				if eng.mobile[m] == eng.king and eng.mobile[m] >= 0:
-					continue
-				for r in 10:
-					if r == eng.king or r == eng.mobile[0] or r == eng.mobile[1]:
-						continue
+				for r in eng._mobile_targets(m):
 					eng.mobile[m] = r
 					var v := evaluate(me)
 					restore(sn)
@@ -688,7 +812,7 @@ func _special_value(ci: int) -> float:
 			eng.prov[me] -= q
 			eng.court[me] += q
 		"advisor", "king":
-			var allowed: Array = D.ADJ[eng.king] if key == "advisor" else range(9)
+			var allowed: Array = eng.adj(eng.king) if key == "advisor" else eng.king_regions()
 			var sn := snap()
 			var best: int = eng.king
 			var bv := -INF
@@ -699,6 +823,8 @@ func _special_value(ci: int) -> float:
 					bv = v
 					best = r
 			eng.king = best
+			if eng.revolution >= 0:
+				eng.grande[eng.revolution] = best
 		"powerback":
 			if not eng.discard[me].is_empty():
 				eng.score[me] += 1.2
@@ -706,8 +832,8 @@ func _special_value(ci: int) -> float:
 			var sn := snap()
 			var best := -1
 			var bv := -INF
-			for r in 9:
-				if r == eng.king:
+			for r in regs:
+				if eng.taboo(r):
 					continue
 				var has := false
 				for t in eng.n:
@@ -728,8 +854,8 @@ func _special_value(ci: int) -> float:
 				var sn := snap()
 				var best: int = eng.grande[me]
 				var bv := evaluate(me)
-				for r in 9:
-					if r == eng.king:
+				for r in regs:
+					if eng.taboo(r):
 						continue
 					eng.grande[me] = r
 					var v := evaluate(me)
@@ -740,6 +866,112 @@ func _special_value(ci: int) -> float:
 				eng.grande[me] = best
 		"veto":
 			eng.score[me] += 1.0
+		"score_inland":
+			for r in D.INLAND:
+				_sim_score(r)
+		"score_coastal":
+			for r in D.COASTAL:
+				if r in regs:
+					_sim_score(r)
+		"score_courts":
+			var pts := eng.points_for(eng.court, D.COURTS_VALS)
+			for t in pts:
+				eng.score[t] += pts[t]
+		"evict_castillo":
+			for t in eng.n:
+				if t != me:
+					eng.court[t] += eng.cab[CAS][t]
+					eng.cab[CAS][t] = 0
+		"conspiracy":
+			for t in eng.n:
+				if t != me and eng.grande[t] >= 0 and eng.grande[t] != CAS and not eng.taboo(eng.grande[t]):
+					eng.grande[t] = CAS
+		"storm":
+			for t in eng.n:
+				if t == me:
+					continue
+				for j in 2:
+					var best := -1
+					var bv := -INF
+					for r in regs:
+						if eng.taboo(r) or eng.cab[r][t] <= 0:
+							continue
+						eng.cab[r][t] -= 1
+						var v := evaluate(me)
+						eng.cab[r][t] += 1
+						if v > bv:
+							bv = v
+							best = r
+					if best >= 0:
+						eng.cab[best][t] -= 1
+						eng.cab[CAS][t] += 1
+			var q := mini(2, eng.court[me])
+			eng.court[me] -= q
+			eng.cab[CAS][me] += q
+		"double_swap":
+			for m in 2:
+				var sn := snap()
+				var best: int = eng.mobile[m]
+				var bv := evaluate(me)
+				for r in eng._mobile_targets(m):
+					eng.mobile[m] = r
+					var v := evaluate(me)
+					restore(sn)
+					if v > bv:
+						bv = v
+						best = r
+				eng.mobile[m] = best
+		"revolution":
+			var sn := snap()
+			var best := -1
+			var bv := evaluate(me)
+			for t in eng.n:
+				if eng.grande[t] < 0 or eng.grande[t] == CAS:
+					continue
+				eng.king = eng.grande[t]
+				var v := evaluate(me)
+				restore(sn)
+				if v > bv:
+					bv = v
+					best = t
+			if best >= 0:
+				eng.king = eng.grande[best]
+				eng.revolution = best
+		"alliance":
+			var best := 0.0
+			var fr := eng.region_cards_free()
+			for i in fr.size():
+				for j in range(i + 1, fr.size()):
+					best = maxf(best, _alliance_gain(fr[i], fr[j]))
+			eng.score[me] += best * 0.7
+		"boycott":
+			var best := 0.0
+			for r in eng.region_cards_free():
+				best = maxf(best, -_gain_value(eng.region_points(r), me))
+			eng.score[me] += best * 0.6
+		"gi_take":
+			eng.score[me] += 1.6
+		"incognito":
+			eng.score[me] += 1.0
+		"espionage":
+			eng.score[me] += 0.4 + 0.3 * eng.cab[CAS][me]
+		"free_choice":
+			eng.score[me] += 1.2
+		"stop":
+			var pos := eng.order.find(me)
+			eng.score[me] += 0.8 * maxi(0, eng.order.size() - 1 - pos)
+		"double_turn":
+			var base := evaluate(me)
+			var best := 0.0
+			for c in eng._available_cards():
+				if D.CARDS[c]["key"] == "double_turn":
+					continue
+				var sn := snap()
+				best = maxf(best, _special_value(c) - base)
+				restore(sn)
+			eng.score[me] += best
+		"queen_jester":
+			eng.score[me] += 1.4
 	return evaluate(me)
 
 
@@ -751,10 +983,13 @@ func _sim_score(r: int, first_only := false) -> void:
 
 ## Piano completo per una carta: valore, ordine (azione prima o dopo il piazzamento).
 func _plan(ci: int) -> Dictionary:
-	var pile: int = D.CARDS[ci]["pile"]
+	var pile: int = D.card_n(ci)
+	var fp: bool = D.CARDS[ci]["key"] == "province"
+	if fp:
+		return {"value": _province_value(pile), "special_first": false}
 	var sn := snap()
 	# piazzamento poi azione
-	_apply_place(_place(pile, eng.place_targets()), me)
+	_apply_place(_place(pile, eng.place_targets(me)), me)
 	var base1 := evaluate(me)
 	var a := maxf(base1, _special_value(ci))
 	restore(sn)
@@ -763,15 +998,30 @@ func _plan(ci: int) -> Dictionary:
 	if eng.court[me] > 0:
 		var base2 := evaluate(me)
 		b = maxf(base2, _special_value(ci))
-		_apply_place(_place(pile, eng.place_targets()), me)
+		_apply_place(_place(pile, eng.place_targets(me)), me)
 		b = maxf(b, evaluate(me))
 		restore(sn)
 	return {"value": maxf(a, b), "special_first": b > a + 0.01}
 
 
+func _province_value(k: int) -> float:
+	var sn := snap()
+	var q := mini(k, eng.prov[me])
+	eng.prov[me] -= q
+	eng.court[me] += q
+	_apply_place(_place(q, eng.place_targets(me)), me)
+	# quelli non piazzati tornano nelle province
+	var back: int = mini(q, eng.court[me])
+	eng.court[me] -= back
+	eng.prov[me] += back
+	var v := evaluate(me)
+	restore(sn)
+	return v
+
+
 ## Esegue sullo stato il piano migliore per la carta ci (lo stato resta modificato).
 func _apply_plan(ci: int) -> void:
-	var pile: int = D.CARDS[ci]["pile"]
+	var pile: int = D.card_n(ci)
 	var pl := _plan(ci)
 	if pl["special_first"]:
 		var b0 := evaluate(me)
@@ -779,9 +1029,9 @@ func _apply_plan(ci: int) -> void:
 		var v := _special_value(ci)
 		if v < b0:
 			restore(sn)
-		_apply_place(_place(pile, eng.place_targets()), me)
+		_apply_place(_place(pile, eng.place_targets(me)), me)
 	else:
-		_apply_place(_place(pile, eng.place_targets()), me)
+		_apply_place(_place(pile, eng.place_targets(me)), me)
 		var b1 := evaluate(me)
 		var sn2 := snap()
 		var v2 := _special_value(ci)

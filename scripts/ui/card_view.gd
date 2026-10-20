@@ -37,7 +37,7 @@ func _draw() -> void:
 	var r := Rect2(Vector2.ZERO, size)
 	# carta italiana scansionata (illustrazione, titolo, testo e spiegazione)
 	draw_rect(r.grow(1), Color(0, 0, 0, 0.5))
-	draw_texture_rect(UI.tex("res://assets/actions_it/c%d.jpg" % ci), r, false)
+	draw_texture_rect(UI.tex(D.card_tex_path(ci)), r, false)
 	if owner_color >= 0:
 		draw_rect(r, Color(0, 0, 0, 0.45))
 		UI.draw_cube(self, Vector2(size.x / 2.0, size.x * 0.27), 34 if not big else 60, UI.pcol(owner_color), Color(1, 0.95, 0.8))

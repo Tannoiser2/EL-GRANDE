@@ -52,6 +52,23 @@ func update_info() -> void:
 	lines.append("Carte potere in mano: " + ", ".join(eng.hand[seat].map(func(v): return str(v))))
 	if eng.veto_active(seat):
 		lines.append("Ha il Veto!")
+	if eng.grandissimo:
+		if seat in eng.ships:
+			lines.append("Ha un gettone nave: può piazzare sulla nave.")
+		if eng.queen == seat:
+			lines.append("Ha la Regina: a ogni turno un Caballero in più (corte→mappa o province→corte).")
+		if eng.jester == seat:
+			lines.append("Ha il Giullare: a ogni turno può regalare un Caballero delle province.")
+		if eng.inq_owner == seat:
+			lines.append("Ha il Grande Inquisitore fino alla prossima valutazione generale.")
+		if eng.saved.has(seat):
+			lines.append("Doppio turno: " + ", ".join(eng.saved[seat].map(func(c): return D.CARDS[c]["title"])))
+		if eng.alliance.has(seat):
+			lines.append("Alleanza: %s + %s" % [D.region_name(eng.alliance[seat][0]), D.region_name(eng.alliance[seat][1])])
+		if eng.boycott.has(seat):
+			lines.append("Boicottaggio: " + (D.region_name(eng.boycott[seat]) if view != null and view.can_see_secret(seat) else "carta coperta"))
+		if eng.incognito.has(seat):
+			lines.append("Re in incognito: " + (D.region_name(eng.incognito[seat]) if view != null and view.can_see_secret(seat) else "carta coperta"))
 	tooltip_text = "\n".join(lines)
 	queue_redraw()
 
@@ -101,7 +118,9 @@ func _draw() -> void:
 	if eng.veto_active(seat):
 		rx = _tag_right(rx, "VETO", UI.RED, Color.WHITE)
 	if eng.start_seat == seat and eng.phase == "power":
-		rx = _tag_right(rx, "inizia il round", Color(0.25, 0.16, 0.08), UI.GOLD)
+		rx = _tag_right(rx, "inizia", Color(0.25, 0.16, 0.08), UI.GOLD)
+	if eng.grandissimo:
+		rx = _grandissimo_tokens(rx)
 	# nastri dalle province alla carta e dalla carta alla corte
 	var rib := Color(col.r, col.g, col.b, 0.3)
 	var mid := prov_r.position.y + S * 0.5
@@ -143,6 +162,40 @@ func _draw() -> void:
 		bw = 4.0
 		bc = light.lerp(Color.WHITE, 0.25 + 0.25 * sin(t * 4.0))
 	draw_rect(full.grow(-1), bc, false, bw)
+
+
+## Gettoni e carte tenute (Grandissimo), da destra verso sinistra nell'intestazione.
+func _grandissimo_tokens(rx: float) -> float:
+	var icons := []
+	if seat in eng.ships:
+		icons.append("ship_token")
+	if eng.queen == seat:
+		icons.append("queen")
+	if eng.jester == seat:
+		icons.append("jester")
+	for ic in icons:
+		var r := Rect2(Vector2(rx - 26, 3), Vector2(26, 26))
+		draw_texture_rect(UI.tex("res://assets/grandissimo/%s.jpg" % ic), r, false)
+		draw_rect(r, UI.GOLD, false, 1.0)
+		rx -= 30
+	if eng.inq_owner == seat:
+		rx = _tag_right(rx, "Inquisitore", Color(0.12, 0.12, 0.12), Color("#e0e0e0"))
+	var tags := []
+	if eng.saved.has(seat):
+		tags.append("Doppio turno")
+	if eng.espionage.has(seat):
+		tags.append("Spionaggio")
+	if eng.free_choice.has(seat):
+		tags.append("Scelta libera")
+	if eng.alliance.has(seat):
+		tags.append("Alleanza")
+	if eng.boycott.has(seat):
+		tags.append("Boicottaggio")
+	if eng.incognito.has(seat):
+		tags.append("Re incognito")
+	for tg in tags:
+		rx = _tag_right(rx, tg, Color(0.3, 0.2, 0.08), Color("#f6e8c8"))
+	return rx
 
 
 func _text(s: String, fs: int, pos: Vector2, col: Color) -> void:

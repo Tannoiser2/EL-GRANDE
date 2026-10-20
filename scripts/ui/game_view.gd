@@ -11,8 +11,8 @@ const BOARD_POS := Vector2(10, 10)
 const BOARD_W := 1230.0
 const RX := 1252.0
 const RW := 658.0
-const CARD_W := 126.0
-const CARD_H := 177.0
+var CARD_W := 126.0
+var CARD_H := 177.0
 const LOW_Y := 920.0          # sotto la mappa: istruzioni e cronaca
 
 var main
@@ -177,8 +177,11 @@ func _build_side() -> void:
 	rows_box.position = Vector2(RX, 80)
 	rows_box.add_theme_constant_override("separation", 6)
 	add_child(rows_box)
+	var ncards := 7 if engine.grandissimo else 5
+	CARD_W = minf(126.0, floorf((RW - 6 * (ncards - 1)) / ncards))
+	CARD_H = roundf(CARD_W * 1.405)
 	var cards_y := 1072.0 - CARD_H
-	var ph := minf(205.0, (cards_y - 8 - 80 - 6 * (engine.n - 1)) / engine.n)
+	var ph := minf(215.0, (cards_y - 8 - 80 - 6 * (engine.n - 1)) / engine.n)
 	for s in engine.n:
 		var pl := Plancia.new()
 		pl.eng = engine
@@ -395,6 +398,15 @@ func display_counts() -> Array:
 	return c
 
 
+## Carte coperte di un giocatore (Boicottaggio, Re in incognito): le vede solo lui.
+func can_see_secret(s: int) -> bool:
+	if engine.game_over:
+		return true
+	if online != null:
+		return s == online.seat
+	return s in humans and humans.size() == 1 or (s == engine.current and s in humans)
+
+
 func can_see_castillo(s: int) -> bool:
 	if not engine.castillo_hidden:
 		return true
@@ -433,7 +445,7 @@ func _move_ok(a: int, b: int, p: int) -> bool:
 	var oc := _move_counts()
 	if moves.size() >= int(spec["max"]):
 		return false
-	if a < 0 or a > 8 or a == engine.king or b == engine.king or a == b or b < 0 or b > 9:
+	if a == b or not (a in engine.move_sources()) or not (b in engine.move_dests()):
 		return false
 	if counts[a][p] <= 0:
 		return false
@@ -483,17 +495,26 @@ func _on_region_hover(r: int) -> void:
 		return
 	var counts := display_counts()
 	var lines := ["%s" % D.region_name(r)]
-	var v := engine.vals(r)
-	lines.append("Valori %d / %d / %d" % [v[0], v[1], v[2]] + (" (segna-punti mobile)" if r in engine.mobile else ""))
-	if r == engine.king:
+	var mapr: bool = r in engine.map_regions()
+	if r == D.SHIP_G:
+		lines.append("Chi ha un gettone nave può piazzarvi i Caballeros della corte, ovunque sia il Re;")
+		lines.append("all'inizio del suo turno li sbarca in una regione costiera. Non si valuta.")
+	elif r == D.JAIL:
+		lines.append("Prigionieri: li libera chi prende la carta del Re.")
+	else:
+		var v := engine.vals(r)
+		lines.append("Valori %d / %d / %d" % [v[0], v[1], v[2]] + (" (segna-punti mobile)" if r in engine.mobile else ""))
+	if engine.taboo(r):
 		lines.append("Regione del Re: nessuno può entrare o uscire.")
-	elif r < 9:
-		lines.append("Confina con: " + ", ".join(D.ADJ[r].map(func(x): return D.region_name(x))))
+	elif mapr:
+		lines.append("Confina con: " + ", ".join(engine.adj(r).map(func(x): return D.region_name(x))))
+	if r == engine.inq_pos:
+		lines.append("Qui ci sono i 2 Caballeros neri dell'Inquisitore (non contano).")
 	for s in engine.n:
 		var q: int = counts[r][s]
 		if q > 0:
 			lines.append("  %s: %s" % [engine.pname(s), "?" if r == CAS and not can_see_castillo(s) else str(q)])
-	if r < 9:
+	if mapr:
 		var pts := engine.region_points(r)
 		if not pts.is_empty():
 			var pp := []
